@@ -1,0 +1,16 @@
+.gradle/
+.idea/
+.tooling/
+local.properties
+*.iml
+
+# Android build output
+**/build/
+
+# Local machine files
+captures/
+*.log
+/StreamBoxTV-v0.1-debug.apk
+/emulator-*.png
+/keyboard-focus.png
+/mockup-*.png
