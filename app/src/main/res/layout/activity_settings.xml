@@ -51,10 +51,40 @@
             android:textSize="14sp"
             android:visibility="gone" />
 
-        <LinearLayout
+        <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="20dp"
+            android:text="@string/channel_controls_title"
+            android:textColor="@color/white"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <Switch
+            android:id="@+id/invert_channel_keys"
+            android:layout_width="match_parent"
+            android:layout_height="54dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/focus_button"
+            android:focusable="true"
+            android:paddingHorizontal="14dp"
+            android:text="@string/invert_channel_keys"
+            android:textColor="@color/white"
+            android:textSize="16sp"
+            android:thumbTint="@color/cyan" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/invert_channel_keys_description"
+            android:textColor="@color/muted"
+            android:textSize="13sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
             android:gravity="end"
             android:orientation="horizontal">
 
@@ -81,7 +111,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="28dp"
+            android:layout_marginTop="18dp"
             android:text="@string/remote_help"
             android:textColor="#90A4AE"
             android:textSize="14sp" />

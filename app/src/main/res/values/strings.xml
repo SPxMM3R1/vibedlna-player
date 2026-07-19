@@ -1,16 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">StreamBox TV</string>
+    <string name="app_name">VibeM3U</string>
     <string name="live">EN VIVO</string>
     <string name="live_content">Transmisión en directo</string>
     <string name="loading_playlist">Descargando lista de canales…</string>
     <string name="empty_playlist">La lista no contiene canales reproducibles.</string>
     <string name="playlist_error">No se pudo descargar la lista.\nPulsa OK para reintentar o mantén OK para configurar.</string>
-    <string name="settings_title">Lista M3U</string>
+    <string name="settings_title">Configuración de VibeM3U</string>
     <string name="settings_description">La lista se descarga nuevamente cada vez que abres la aplicación.</string>
     <string name="playlist_url_hint">https://ejemplo.com/lista.m3u</string>
     <string name="save_and_play">Guardar y reproducir</string>
     <string name="cancel">Cancelar</string>
     <string name="url_required">Ingresa una URL http:// o https:// válida.</string>
+    <string name="channel_controls_title">Cambio de canales</string>
+    <string name="invert_channel_keys">Invertir botones arriba y abajo</string>
+    <string name="invert_channel_keys_description">Activado: ↑ avanza al canal siguiente y ↓ vuelve al anterior.</string>
     <string name="remote_help">Durante la reproducción: ↑/↓ cambia de canal · OK muestra información · mantener OK abre esta configuración.</string>
 </resources>

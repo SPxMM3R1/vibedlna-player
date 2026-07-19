@@ -13,7 +13,7 @@ public final class PlaylistRepository {
     private static final int CONNECT_TIMEOUT_MS = 12_000;
     private static final int READ_TIMEOUT_MS = 20_000;
     private static final int MAX_PLAYLIST_BYTES = 8 * 1024 * 1024;
-    private static final String USER_AGENT = "StreamBoxTV/0.1 (Android TV)";
+    private static final String USER_AGENT = "VibeM3U/0.2 (Android TV)";
 
     public List<Channel> download(String url) throws IOException {
         URI playlistUri;

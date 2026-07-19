@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "StreamBoxTV"
+rootProject.name = "VibeM3U"
 include(":app")

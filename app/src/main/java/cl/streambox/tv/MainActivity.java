@@ -3,8 +3,6 @@ package cl.streambox.tv;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
@@ -30,11 +28,7 @@ import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
-import java.net.HttpURLConnection;
 import java.net.URI;
-import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -71,13 +65,18 @@ public final class MainActivity extends Activity {
     private TextView streamStatus;
 
     private ExoPlayer player;
+    private ChannelLogoCache channelLogoCache;
     private int channelIndex;
     private boolean loadFailed;
     private boolean settingsOpen;
     private boolean refreshAfterSettings;
+    private boolean overlayAwaitingPlayback;
     private int playlistGeneration;
 
-    private final Runnable hideOverlay = () -> channelOverlay.setVisibility(View.GONE);
+    private final Runnable hideOverlay = () -> {
+        channelOverlay.setVisibility(View.GONE);
+        clock.setVisibility(View.GONE);
+    };
     private final Runnable updateClock = new Runnable() {
         @Override public void run() {
             clock.setText(new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date()));
@@ -89,6 +88,7 @@ public final class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        channelLogoCache = new ChannelLogoCache(this);
         bindViews();
         enterImmersiveMode();
         createPlayer();
@@ -133,6 +133,7 @@ public final class MainActivity extends Activity {
             @Override public void onPlayerError(PlaybackException error) {
                 setStatus("ERROR", R.color.red);
                 codecInfo.setText(shortMessage(error));
+                overlayAwaitingPlayback = true;
                 showOverlay(true);
                 mainHandler.postDelayed(() -> {
                     if (player != null && player.getPlayerError() != null) {
@@ -150,7 +151,7 @@ public final class MainActivity extends Activity {
         loadingPanel.setVisibility(View.VISIBLE);
         loadingProgress.setVisibility(View.VISIBLE);
         loadingText.setText(R.string.loading_playlist);
-        channelOverlay.setVisibility(View.GONE);
+        hideOverlay.run();
 
         if (!isNetworkAvailable()) {
             showPlaylistError("No hay conexión a Internet.");
@@ -204,7 +205,7 @@ public final class MainActivity extends Activity {
         codecInfo.setText("Analizando stream…");
         setStatus("CARGANDO", R.color.amber);
         loadChannelLogo(channel);
-        showOverlay(false);
+        showOverlayForChannelStart();
     }
 
     private void loadChannelLogo(Channel channel) {
@@ -220,36 +221,16 @@ public final class MainActivity extends Activity {
 
         int expectedIndex = channelIndex;
         networkExecutor.submit(() -> {
-            HttpURLConnection connection = null;
             try {
-                connection = (HttpURLConnection) new URL(logoUri.toString()).openConnection();
-                connection.setConnectTimeout(6_000);
-                connection.setReadTimeout(8_000);
-                connection.setUseCaches(true);
-                connection.setRequestProperty("User-Agent", "StreamBoxTV/0.1 (Android TV)");
-                try (InputStream input = connection.getInputStream(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-                    byte[] buffer = new byte[8 * 1024];
-                    int total = 0;
-                    int count;
-                    while ((count = input.read(buffer)) != -1 && total <= 2 * 1024 * 1024) {
-                        total += count;
-                        output.write(buffer, 0, count);
-                    }
-                    byte[] bytes = output.toByteArray();
-                    Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-                    if (bitmap != null) {
-                        mainHandler.post(() -> {
-                            if (expectedIndex != channelIndex || isFinishing()) return;
-                            channelLogo.setImageBitmap(bitmap);
-                            channelLogo.setVisibility(View.VISIBLE);
-                            channelLogoFallback.setVisibility(View.GONE);
-                        });
-                    }
-                }
+                android.graphics.Bitmap bitmap = channelLogoCache.load(logoUri);
+                mainHandler.post(() -> {
+                    if (expectedIndex != channelIndex || isFinishing()) return;
+                    channelLogo.setImageBitmap(bitmap);
+                    channelLogo.setVisibility(View.VISIBLE);
+                    channelLogoFallback.setVisibility(View.GONE);
+                });
             } catch (Exception ignored) {
                 // El monograma del canal permanece visible como respaldo.
-            } finally {
-                if (connection != null) connection.disconnect();
             }
         });
     }
@@ -257,6 +238,10 @@ public final class MainActivity extends Activity {
     private void updateStreamStatus(int state) {
         if (state == Player.STATE_READY) {
             setStatus("ESTABLE", R.color.green);
+            if (overlayAwaitingPlayback) {
+                overlayAwaitingPlayback = false;
+                showOverlay(false);
+            }
         } else if (state == Player.STATE_BUFFERING) {
             setStatus("CARGANDO", R.color.amber);
         } else if (state == Player.STATE_ENDED) {
@@ -294,10 +279,16 @@ public final class MainActivity extends Activity {
 
     private void showOverlay(boolean keepVisible) {
         channelOverlay.setVisibility(View.VISIBLE);
+        clock.setVisibility(View.VISIBLE);
         mainHandler.removeCallbacks(hideOverlay);
         if (!keepVisible) {
             mainHandler.postDelayed(hideOverlay, OVERLAY_TIMEOUT_MS);
         }
+    }
+
+    private void showOverlayForChannelStart() {
+        overlayAwaitingPlayback = true;
+        showOverlay(true);
     }
 
     @Override
@@ -314,11 +305,11 @@ public final class MainActivity extends Activity {
             }
             if (event.getRepeatCount() == 0) {
                 if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_CHANNEL_UP) {
-                    playChannel(channelIndex - 1);
+                    playChannel(channelIndex + (isChannelNavigationInverted() ? 1 : -1));
                     return true;
                 }
                 if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN || keyCode == KeyEvent.KEYCODE_CHANNEL_DOWN) {
-                    playChannel(channelIndex + 1);
+                    playChannel(channelIndex + (isChannelNavigationInverted() ? -1 : 1));
                     return true;
                 }
                 if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_INFO) {
@@ -358,6 +349,11 @@ public final class MainActivity extends Activity {
         SharedPreferences prefs = getSharedPreferences(SettingsActivity.PREFS, MODE_PRIVATE);
         String url = prefs.getString(SettingsActivity.KEY_PLAYLIST_URL, "");
         return url == null ? "" : url.trim();
+    }
+
+    private boolean isChannelNavigationInverted() {
+        return getSharedPreferences(SettingsActivity.PREFS, MODE_PRIVATE)
+                .getBoolean(SettingsActivity.KEY_INVERT_CHANNEL_KEYS, false);
     }
 
     private boolean isNetworkAvailable() {
