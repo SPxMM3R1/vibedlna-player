@@ -8,8 +8,13 @@ una barra compacta al cambiar de canal.
 
 - [StreamBoxTV v0.1.0 para Android TV](https://gitlab.com/roberto.ramos.dz/streambox-tv/-/raw/main/releases/StreamBoxTV-v0.1.0.apk)
 
-El APK también puede instalarse con Downloader usando el código publicado en la
-página del proyecto.
+## Instalar con Downloader
+
+1. Abre Downloader en Android TV.
+2. Escribe el código **7068069**.
+3. Descarga e instala el APK.
+
+Enlace corto equivalente: [aftv.news/7068069](https://aftv.news/7068069).
 
 ## Controles
 
