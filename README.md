@@ -14,10 +14,10 @@ para que los logos ya descargados aparezcan sin volver a consultar Internet.
 
 ## Instalar con Downloader
 
-El código **7068069** continúa descargando la versión 0.1.0. La versión 0.2.0
-tendrá su propio código para conservar ambas descargas disponibles.
+- VibeM3U v0.2.0: código **6326540** — [aftv.news/6326540](https://aftv.news/6326540)
+- StreamBox TV v0.1.0: código **7068069** — [aftv.news/7068069](https://aftv.news/7068069)
 
-Enlace de la v0.1.0: [aftv.news/7068069](https://aftv.news/7068069).
+En Downloader, escribe el código correspondiente y confirma la descarga.
 
 ## Controles
 
