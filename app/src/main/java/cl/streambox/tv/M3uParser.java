@@ -15,9 +15,13 @@ public final class M3uParser {
     private M3uParser() {}
 
     public static List<Channel> parse(String content, URI playlistUri) {
+        return parsePlaylist(content, playlistUri).getChannels();
+    }
+
+    public static Playlist parsePlaylist(String content, URI playlistUri) {
         List<Channel> channels = new ArrayList<>();
         if (content == null || content.trim().isEmpty()) {
-            return channels;
+            return new Playlist(channels, null);
         }
 
         String pendingName = null;
@@ -63,7 +67,24 @@ public final class M3uParser {
             pendingGroup = "";
             pendingAttributes = new LinkedHashMap<>();
         }
-        return channels;
+        return new Playlist(channels, parseEpgUri(normalized, playlistUri));
+    }
+
+    private static URI parseEpgUri(String content, URI playlistUri) {
+        for (String rawLine : content.split("\\r?\\n")) {
+            String line = rawLine.trim();
+            if (line.isEmpty()) continue;
+            if (!line.regionMatches(true, 0, "#EXTM3U", 0, 7)) return null;
+
+            Map<String, String> attributes = parseAttributes(line);
+            String value = attributes.get("x-tvg-url");
+            if (value == null || value.isBlank()) value = attributes.get("url-tvg");
+            if (value == null || value.isBlank()) return null;
+            int separator = value.indexOf(',');
+            if (separator >= 0) value = value.substring(0, separator);
+            return resolveUri(playlistUri, value);
+        }
+        return null;
     }
 
     private static Map<String, String> parseAttributes(String extInf) {

@@ -24,5 +24,9 @@ public final class Channel {
     public URI getStreamUri() { return streamUri; }
     public URI getLogoUri() { return logoUri; }
     public String getGroup() { return group; }
+    public String getTvgId() {
+        String value = attributes.get("tvg-id");
+        return value == null ? "" : value;
+    }
     public Map<String, String> getAttributes() { return attributes; }
 }

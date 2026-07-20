@@ -10,6 +10,9 @@
     <string name="settings_description">La lista se descarga nuevamente cada vez que abres la aplicación.</string>
     <string name="playlist_url_hint">https://ejemplo.com/lista.m3u</string>
     <string name="save_and_play">Guardar y reproducir</string>
+    <string name="exit_dialog_title">¿Salir de VibeM3U?</string>
+    <string name="stay_watching">Seguir viendo</string>
+    <string name="exit">Salir</string>
     <string name="cancel">Cancelar</string>
     <string name="url_required">Ingresa una URL http:// o https:// válida.</string>
     <string name="channel_controls_title">Cambio de canales</string>

@@ -1,6 +1,10 @@
 package cl.streambox.tv;
 
 import android.app.Activity;
+import android.app.ActivityManager;
+import android.app.Dialog;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.ConnectivityManager;
@@ -8,15 +12,20 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
+import android.view.WindowManager;
+import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.window.OnBackInvokedDispatcher;
 
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
@@ -46,6 +55,7 @@ public final class MainActivity extends Activity {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService networkExecutor = Executors.newFixedThreadPool(2);
     private final PlaylistRepository repository = new PlaylistRepository();
+    private final EpgRepository epgRepository = new EpgRepository();
     private final List<Channel> channels = new ArrayList<>();
 
     private PlayerView playerView;
@@ -59,6 +69,8 @@ public final class MainActivity extends Activity {
     private TextView channelNumber;
     private TextView channelName;
     private TextView contentTitle;
+    private TextView programmeTime;
+    private ProgressBar liveProgress;
     private TextView videoInfo;
     private TextView codecInfo;
     private TextView statusDot;
@@ -66,11 +78,14 @@ public final class MainActivity extends Activity {
 
     private ExoPlayer player;
     private ChannelLogoCache channelLogoCache;
+    private EpgData epgData = EpgData.empty();
     private int channelIndex;
     private boolean loadFailed;
     private boolean settingsOpen;
     private boolean refreshAfterSettings;
     private boolean overlayAwaitingPlayback;
+    private boolean exiting;
+    private Dialog exitDialog;
     private int playlistGeneration;
 
     private final Runnable hideOverlay = () -> {
@@ -83,6 +98,14 @@ public final class MainActivity extends Activity {
             mainHandler.postDelayed(this, 30_000);
         }
     };
+    private final Runnable updateProgramme = new Runnable() {
+        @Override public void run() {
+            updateProgrammeInfo();
+            if (!exiting && !isFinishing()) {
+                mainHandler.postDelayed(this, 30_000);
+            }
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -90,6 +113,7 @@ public final class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
         channelLogoCache = new ChannelLogoCache(this);
         bindViews();
+        registerBackCallback();
         enterImmersiveMode();
         createPlayer();
         updateClock.run();
@@ -107,6 +131,8 @@ public final class MainActivity extends Activity {
         channelNumber = findViewById(R.id.channel_number);
         channelName = findViewById(R.id.channel_name);
         contentTitle = findViewById(R.id.content_title);
+        programmeTime = findViewById(R.id.programme_time);
+        liveProgress = findViewById(R.id.live_progress);
         videoInfo = findViewById(R.id.video_info);
         codecInfo = findViewById(R.id.codec_info);
         statusDot = findViewById(R.id.status_dot);
@@ -151,6 +177,8 @@ public final class MainActivity extends Activity {
         loadingPanel.setVisibility(View.VISIBLE);
         loadingProgress.setVisibility(View.VISIBLE);
         loadingText.setText(R.string.loading_playlist);
+        epgData = EpgData.empty();
+        mainHandler.removeCallbacks(updateProgramme);
         hideOverlay.run();
 
         if (!isNetworkAvailable()) {
@@ -160,15 +188,29 @@ public final class MainActivity extends Activity {
 
         networkExecutor.submit(() -> {
             try {
-                List<Channel> downloaded = repository.download(url);
+                Playlist downloaded = repository.download(url);
                 mainHandler.post(() -> {
                     if (generation != playlistGeneration || isFinishing()) return;
                     channels.clear();
-                    channels.addAll(downloaded);
+                    channels.addAll(downloaded.getChannels());
                     channelIndex = 0;
                     loadingPanel.setVisibility(View.GONE);
                     playChannel(0);
                 });
+
+                if (downloaded.getEpgUri() != null) {
+                    try {
+                        EpgData downloadedEpg = epgRepository.download(downloaded.getEpgUri());
+                        mainHandler.post(() -> {
+                            if (generation != playlistGeneration || isFinishing()) return;
+                            epgData = downloadedEpg;
+                            mainHandler.removeCallbacks(updateProgramme);
+                            updateProgramme.run();
+                        });
+                    } catch (Exception ignored) {
+                        // La reproducción continúa usando el grupo del canal como respaldo.
+                    }
+                }
             } catch (Exception error) {
                 mainHandler.post(() -> {
                     if (generation != playlistGeneration || isFinishing()) return;
@@ -200,12 +242,43 @@ public final class MainActivity extends Activity {
 
         channelNumber.setText(String.format(Locale.ROOT, "%03d", channelIndex + 1));
         channelName.setText(channel.getName());
-        contentTitle.setText(channel.getGroup().isBlank() ? getString(R.string.live_content) : channel.getGroup());
+        updateProgrammeInfo();
         videoInfo.setText("Resolución pendiente");
         codecInfo.setText("Analizando stream…");
         setStatus("CARGANDO", R.color.amber);
         loadChannelLogo(channel);
         showOverlayForChannelStart();
+    }
+
+    private void updateProgrammeInfo() {
+        if (channels.isEmpty() || channelIndex < 0 || channelIndex >= channels.size()) return;
+        Channel channel = channels.get(channelIndex);
+        long now = System.currentTimeMillis();
+        EpgProgramme programme = epgData.findCurrent(channel.getTvgId(), now);
+
+        if (programme == null) {
+            contentTitle.setText(channel.getGroup().isBlank()
+                    ? getString(R.string.live_content)
+                    : channel.getGroup());
+            programmeTime.setVisibility(View.GONE);
+            liveProgress.setIndeterminate(true);
+            return;
+        }
+
+        contentTitle.setText(programme.getTitle());
+        SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm", Locale.getDefault());
+        String timeRange = timeFormat.format(new Date(programme.getStartMillis()))
+                + " — "
+                + timeFormat.format(new Date(programme.getStopMillis()));
+        programmeTime.setText(timeRange);
+        programmeTime.setVisibility(View.VISIBLE);
+
+        long duration = programme.getStopMillis() - programme.getStartMillis();
+        int progress = duration <= 0 ? 0 : (int) Math.max(0, Math.min(1000,
+                ((now - programme.getStartMillis()) * 1000L) / duration));
+        liveProgress.setIndeterminate(false);
+        liveProgress.setMax(1000);
+        liveProgress.setProgress(progress);
     }
 
     private void loadChannelLogo(Channel channel) {
@@ -295,6 +368,10 @@ public final class MainActivity extends Activity {
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             int keyCode = event.getKeyCode();
+            if (keyCode == KeyEvent.KEYCODE_BACK && event.getRepeatCount() == 0) {
+                showExitDialog();
+                return true;
+            }
             if (keyCode == KeyEvent.KEYCODE_MENU || keyCode == KeyEvent.KEYCODE_SETTINGS) {
                 openSettings();
                 return true;
@@ -323,6 +400,62 @@ public final class MainActivity extends Activity {
             }
         }
         return super.dispatchKeyEvent(event);
+    }
+
+    private void registerBackCallback() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                    OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                    this::showExitDialog);
+        }
+    }
+
+    private void showExitDialog() {
+        if (exiting || (exitDialog != null && exitDialog.isShowing())) return;
+
+        exitDialog = new Dialog(this);
+        exitDialog.setContentView(R.layout.dialog_exit);
+        exitDialog.setCanceledOnTouchOutside(false);
+
+        Button stayButton = exitDialog.findViewById(R.id.stay_button);
+        Button exitButton = exitDialog.findViewById(R.id.exit_button);
+        stayButton.setOnClickListener(view -> exitDialog.dismiss());
+        exitButton.setOnClickListener(view -> exitApplication());
+        exitDialog.setOnShowListener(dialog -> exitButton.requestFocus());
+        exitDialog.setOnDismissListener(dialog -> {
+            exitDialog = null;
+            if (!exiting) enterImmersiveMode();
+        });
+
+        Window window = exitDialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            WindowManager.LayoutParams attributes = window.getAttributes();
+            attributes.width = WindowManager.LayoutParams.WRAP_CONTENT;
+            attributes.height = WindowManager.LayoutParams.WRAP_CONTENT;
+            attributes.dimAmount = 0.68f;
+            window.setAttributes(attributes);
+        }
+        exitDialog.show();
+    }
+
+    private void exitApplication() {
+        if (exiting) return;
+        exiting = true;
+        if (exitDialog != null) exitDialog.dismiss();
+        playlistGeneration++;
+        mainHandler.removeCallbacksAndMessages(null);
+        if (player != null) player.pause();
+
+        ActivityManager activityManager = getSystemService(ActivityManager.class);
+        if (activityManager == null || activityManager.getAppTasks().isEmpty()) {
+            finishAndRemoveTask();
+            return;
+        }
+        for (ActivityManager.AppTask task : activityManager.getAppTasks()) {
+            task.finishAndRemoveTask();
+        }
     }
 
     private void openSettings() {

@@ -11,20 +11,23 @@ import java.util.List;
 public class M3uParserTest {
     @Test
     public void parsesNamesLogosGroupsAndRelativeUrls() {
-        String playlist = "#EXTM3U\n" +
-                "#EXTINF:-1 tvg-logo=\"logos/norte.png\" group-title=\"Deportes\",Norte Deportes HD\n" +
+        String playlist = "#EXTM3U x-tvg-url=\"guide/epg.xml\"\n" +
+                "#EXTINF:-1 tvg-id=\"norte.tv\" tvg-logo=\"logos/norte.png\" group-title=\"Deportes\",Norte Deportes HD\n" +
                 "streams/norte.m3u8\n" +
                 "#EXTINF:-1 tvg-name=\"Noticias 24\",\n" +
                 "https://media.example.org/news.m3u8\n";
 
-        List<Channel> channels = M3uParser.parse(playlist, URI.create("https://example.org/lists/tv.m3u"));
+        Playlist parsed = M3uParser.parsePlaylist(playlist, URI.create("https://example.org/lists/tv.m3u"));
+        List<Channel> channels = parsed.getChannels();
 
         assertEquals(2, channels.size());
         assertEquals("Norte Deportes HD", channels.get(0).getName());
         assertEquals("Deportes", channels.get(0).getGroup());
         assertEquals("https://example.org/lists/streams/norte.m3u8", channels.get(0).getStreamUri().toString());
         assertEquals("https://example.org/lists/logos/norte.png", channels.get(0).getLogoUri().toString());
+        assertEquals("norte.tv", channels.get(0).getTvgId());
         assertEquals("Noticias 24", channels.get(1).getName());
+        assertEquals("https://example.org/lists/guide/epg.xml", parsed.getEpgUri().toString());
     }
 
     @Test

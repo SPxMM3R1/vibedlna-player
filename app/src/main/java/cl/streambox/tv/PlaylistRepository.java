@@ -7,15 +7,14 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 
 public final class PlaylistRepository {
     private static final int CONNECT_TIMEOUT_MS = 12_000;
     private static final int READ_TIMEOUT_MS = 20_000;
     private static final int MAX_PLAYLIST_BYTES = 8 * 1024 * 1024;
-    private static final String USER_AGENT = "VibeM3U/0.2 (Android TV)";
+    private static final String USER_AGENT = "VibeM3U/0.2.1 (Android TV)";
 
-    public List<Channel> download(String url) throws IOException {
+    public Playlist download(String url) throws IOException {
         URI playlistUri;
         try {
             playlistUri = URI.create(url);
@@ -39,11 +38,11 @@ public final class PlaylistRepository {
                 throw new IOException("El servidor respondió HTTP " + responseCode + ".");
             }
             byte[] bytes = readLimited(connection.getInputStream());
-            List<Channel> channels = M3uParser.parse(new String(bytes, StandardCharsets.UTF_8), playlistUri);
-            if (channels.isEmpty()) {
+            Playlist playlist = M3uParser.parsePlaylist(new String(bytes, StandardCharsets.UTF_8), playlistUri);
+            if (playlist.getChannels().isEmpty()) {
                 throw new IOException("La lista no contiene canales reproducibles.");
             }
-            return channels;
+            return playlist;
         } finally {
             connection.disconnect();
         }

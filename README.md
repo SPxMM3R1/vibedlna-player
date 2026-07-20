@@ -4,11 +4,12 @@ Reproductor M3U para Android TV inspirado en la experiencia de un set-top box:
 abre directamente la señal, descarga la lista nuevamente en cada inicio y muestra
 una barra compacta al cambiar de canal.
 
-La versión 0.2 añade navegación de canales configurable y una caché persistente
-para que los logos ya descargados aparezcan sin volver a consultar Internet.
+La versión 0.2.1 añade navegación configurable, caché persistente de logos,
+confirmación de salida y programación actual desde la EPG XMLTV declarada por la M3U.
 
 ## Descargar
 
+- [VibeM3U v0.2.1](https://gitlab.com/roberto.ramos.dz/streambox-tv/-/raw/main/releases/VibeM3U-v0.2.1.apk)
 - [VibeM3U v0.2.0](https://gitlab.com/roberto.ramos.dz/streambox-tv/-/raw/main/releases/VibeM3U-v0.2.0.apk)
 - [StreamBox TV v0.1.0](https://gitlab.com/roberto.ramos.dz/streambox-tv/-/raw/main/releases/StreamBoxTV-v0.1.0.apk)
 
@@ -24,7 +25,7 @@ En Downloader, escribe el código correspondiente y confirma la descarga.
 - `↑` / `↓`: canal anterior o siguiente; el sentido puede invertirse en Configuración.
 - `OK`: mostrar la información del canal.
 - Mantener `OK`, botón `Menú` o botón `Configuración`: editar la URL M3U.
-- `Atrás`: salir o volver desde Configuración.
+- `Atrás`: confirmar salida o volver desde Configuración.
 
 ## Compilar
 
