@@ -6,6 +6,18 @@ android {
     namespace = "cl.streambox.tv"
     compileSdk = 36
 
+    val ciKeystorePath = System.getenv("VIBEM3U_KEYSTORE_PATH")
+    val ciSigningConfig = if (!ciKeystorePath.isNullOrBlank()) {
+        signingConfigs.create("github") {
+            storeFile = file(ciKeystorePath)
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    } else {
+        null
+    }
+
     defaultConfig {
         applicationId = "cl.streambox.tv"
         minSdk = 23
@@ -15,9 +27,14 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            ciSigningConfig?.let { signingConfig = it }
+        }
+
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            ciSigningConfig?.let { signingConfig = it }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

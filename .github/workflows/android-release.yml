@@ -41,16 +41,33 @@ jobs:
       - name: Restaurar la firma de actualización
         shell: bash
         run: |
-          mkdir -p "$HOME/.android"
+          keystore_path="$RUNNER_TEMP/vibem3u.keystore"
           printf '%s' "$ANDROID_DEBUG_KEYSTORE_BASE64" \
-            | base64 --decode > "$HOME/.android/debug.keystore"
-          chmod 600 "$HOME/.android/debug.keystore"
+            | base64 --decode > "$keystore_path"
+          chmod 600 "$keystore_path"
+          echo "VIBEM3U_KEYSTORE_PATH=$keystore_path" >> "$GITHUB_ENV"
 
       - name: Probar y compilar
         shell: bash
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
+
+      - name: Verificar firma compatible
+        shell: bash
+        run: |
+          apksigner_path="$(
+            find "$ANDROID_HOME/build-tools" -type f -name apksigner \
+              | sort -V | tail -n 1
+          )"
+          actual="$(
+            "$apksigner_path" verify --print-certs \
+              app/build/outputs/apk/debug/app-debug.apk \
+              | sed -n 's/^Signer #1 certificate SHA-256 digest: //p'
+          )"
+          expected="ae6457004fe9b72f077439ce882e3913b2429e96dc7285f9d38b435e0f4322b6"
+          echo "Certificado SHA-256: $actual"
+          test "$actual" = "$expected"
 
       - name: Preparar el APK
         id: apk
