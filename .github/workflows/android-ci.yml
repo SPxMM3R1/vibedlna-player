@@ -60,7 +60,7 @@ jobs:
           )"
           actual="$(
             "$apksigner_path" verify --print-certs \
-              app/build/outputs/apk/debug/app-debug.apk \
+              app/build/outputs/apk/debug/app-debug.apk 2>&1 \
               | sed -n 's/^Signer #1 certificate SHA-256 digest: //p'
           )"
           expected="ae6457004fe9b72f077439ce882e3913b2429e96dc7285f9d38b435e0f4322b6"
