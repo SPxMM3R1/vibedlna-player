@@ -17,3 +17,6 @@ captures/
 /design/
 /vibem3u-*.png
 /vibem3u-*.xml
+
+# Los APK se publican desde GitHub Actions
+/releases/*.apk

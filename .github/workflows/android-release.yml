@@ -1,0 +1,84 @@
+name: Publicar APK
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Compilar y publicar versión
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      ANDROID_DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v6
+
+      - name: Configurar Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Configurar Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Comprobar el secreto de firma
+        if: ${{ env.ANDROID_DEBUG_KEYSTORE_BASE64 == '' }}
+        shell: bash
+        run: |
+          echo "Falta el secreto ANDROID_DEBUG_KEYSTORE_BASE64."
+          exit 1
+
+      - name: Restaurar la firma de actualización
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.android"
+          printf '%s' "$ANDROID_DEBUG_KEYSTORE_BASE64" \
+            | base64 --decode > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
+
+      - name: Probar y compilar
+        shell: bash
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
+
+      - name: Preparar el APK
+        id: apk
+        shell: bash
+        run: |
+          apk_name="VibeM3U-${GITHUB_REF_NAME}.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$apk_name"
+          echo "name=$apk_name" >> "$GITHUB_OUTPUT"
+
+      - name: Conservar el APK como artefacto
+        uses: actions/upload-artifact@v7
+        with:
+          name: VibeM3U-${{ github.ref_name }}
+          path: ${{ steps.apk.outputs.name }}
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Crear o actualizar la versión descargable
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" \
+              "${{ steps.apk.outputs.name }}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              "${{ steps.apk.outputs.name }}" \
+              --verify-tag \
+              --title "VibeM3U $version" \
+              --generate-notes
+          fi

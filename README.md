@@ -1,5 +1,7 @@
 # VibeM3U
 
+[![Android CI](https://github.com/SPxMM3R1/vibem3u/actions/workflows/android-ci.yml/badge.svg)](https://github.com/SPxMM3R1/vibem3u/actions/workflows/android-ci.yml)
+
 Reproductor M3U para Android TV inspirado en la experiencia de un set-top box:
 abre directamente la señal, descarga la lista nuevamente en cada inicio y muestra
 una barra compacta al cambiar de canal.
@@ -9,16 +11,8 @@ confirmación de salida y programación actual desde la EPG XMLTV declarada por 
 
 ## Descargar
 
-- [VibeM3U v0.2.1](https://gitlab.com/roberto.ramos.dz/streambox-tv/-/raw/main/releases/VibeM3U-v0.2.1.apk)
-- [VibeM3U v0.2.0](https://gitlab.com/roberto.ramos.dz/streambox-tv/-/raw/main/releases/VibeM3U-v0.2.0.apk)
-- [StreamBox TV v0.1.0](https://gitlab.com/roberto.ramos.dz/streambox-tv/-/raw/main/releases/StreamBoxTV-v0.1.0.apk)
-
-## Instalar con Downloader
-
-- VibeM3U v0.2.0: código **6326540** — [aftv.news/6326540](https://aftv.news/6326540)
-- StreamBox TV v0.1.0: código **7068069** — [aftv.news/7068069](https://aftv.news/7068069)
-
-En Downloader, escribe el código correspondiente y confirma la descarga.
+- [Descargar VibeM3U v0.2.1](https://github.com/SPxMM3R1/vibem3u/releases/download/v0.2.1/VibeM3U-v0.2.1.apk)
+- [Ver todas las versiones](https://github.com/SPxMM3R1/vibem3u/releases)
 
 ## Controles
 
@@ -27,12 +21,16 @@ En Downloader, escribe el código correspondiente y confirma la descarga.
 - Mantener `OK`, botón `Menú` o botón `Configuración`: editar la URL M3U.
 - `Atrás`: confirmar salida o volver desde Configuración.
 
-## Compilar
+## Compilación automática
 
-En Windows, con Android SDK y JDK configurados:
+GitHub Actions realiza toda la compilación:
 
-```powershell
-.\gradlew.bat assembleDebug
-```
+- Cada cambio enviado a `main` ejecuta las pruebas, el análisis de Android y genera
+  un APK descargable desde la ejecución de **Android CI**.
+- Cada etiqueta con formato `vX.Y.Z` vuelve a compilar el proyecto en GitHub y
+  publica el APK en **Releases**.
+- La firma se recupera desde un secreto cifrado de GitHub para que el APK pueda
+  actualizar instalaciones existentes.
 
-El APK queda en `app/build/outputs/apk/debug/app-debug.apk`.
+Para publicar una nueva versión, primero actualiza `versionCode` y `versionName`,
+y luego crea una etiqueta que coincida con la versión, por ejemplo `v0.3.0`.
