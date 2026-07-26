@@ -21,6 +21,7 @@ import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.window.OnBackInvokedDispatcher;
 
 import androidx.annotation.NonNull;
 import androidx.documentfile.provider.DocumentFile;
@@ -86,6 +87,7 @@ public final class MainActivity extends Activity {
         bindViews();
         configureGrid();
         configureActions();
+        registerBackCallback();
         enterImmersiveMode();
 
         appUpdater = new AppUpdater(this, updateExecutor, mainHandler);
@@ -305,8 +307,7 @@ public final class MainActivity extends Activity {
         if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
             int keyCode = event.getKeyCode();
             if (keyCode == KeyEvent.KEYCODE_BACK) {
-                if (optionsPanel.getVisibility() == View.VISIBLE) closeOptions();
-                else showExitDialog();
+                handleBackAction();
                 return true;
             }
             if (optionsPanel.getVisibility() != View.VISIBLE
@@ -317,6 +318,20 @@ public final class MainActivity extends Activity {
             }
         }
         return super.dispatchKeyEvent(event);
+    }
+
+    private void registerBackCallback() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                    OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                    this::handleBackAction
+            );
+        }
+    }
+
+    private void handleBackAction() {
+        if (optionsPanel.getVisibility() == View.VISIBLE) closeOptions();
+        else showExitDialog();
     }
 
     private void showExitDialog() {

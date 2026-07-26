@@ -12,6 +12,7 @@ import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.widget.TextView;
+import android.window.OnBackInvokedDispatcher;
 
 import androidx.annotation.NonNull;
 import androidx.media3.common.Format;
@@ -62,6 +63,7 @@ public final class PlayerActivity extends Activity {
         clock = findViewById(R.id.player_clock);
         title = findViewById(R.id.player_title);
         diagnostics = findViewById(R.id.player_diagnostics);
+        registerBackCallback();
         enterImmersiveMode();
 
         String uriValue = getIntent().getStringExtra(EXTRA_URI);
@@ -134,7 +136,7 @@ public final class PlayerActivity extends Activity {
         if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
             int keyCode = event.getKeyCode();
             if (keyCode == KeyEvent.KEYCODE_BACK) {
-                finish();
+                handleBackAction();
                 return true;
             }
             if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER
@@ -151,6 +153,19 @@ public final class PlayerActivity extends Activity {
             }
         }
         return super.dispatchKeyEvent(event);
+    }
+
+    private void registerBackCallback() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                    OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                    this::handleBackAction
+            );
+        }
+    }
+
+    private void handleBackAction() {
+        finish();
     }
 
     @Override
