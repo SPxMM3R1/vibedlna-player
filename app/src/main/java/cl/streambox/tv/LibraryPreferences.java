@@ -2,15 +2,13 @@ package cl.streambox.tv;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.net.Uri;
 
 final class LibraryPreferences {
-    private static final String PREFS = "library_settings";
-    private static final String KEY_FOLDER_URI = "folder_uri";
-    private static final String KEY_FOLDER_NAME = "folder_name";
-    private static final String KEY_SORT = "sort";
-    static final String SORT_NAME = "name";
-    static final String SORT_DATE = "date";
+    private static final String PREFS = "dlna_settings";
+    private static final String KEY_SERVER_UDN = "server_udn";
+    private static final String KEY_SERVER_NAME = "server_name";
+    private static final String KEY_CONTAINER_ID = "container_id";
+    private static final String KEY_CONTAINER_NAME = "container_name";
 
     private final SharedPreferences preferences;
 
@@ -18,29 +16,35 @@ final class LibraryPreferences {
         preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
-    Uri getFolderUri() {
-        String value = preferences.getString(KEY_FOLDER_URI, "");
-        return value == null || value.isBlank() ? null : Uri.parse(value);
+    String getServerUdn() {
+        return preferences.getString(KEY_SERVER_UDN, "");
     }
 
-    String getFolderName() {
-        return preferences.getString(KEY_FOLDER_NAME, "Videos");
+    String getServerName() {
+        return preferences.getString(KEY_SERVER_NAME, "");
     }
 
-    void setFolder(Uri uri, String name) {
+    String getContainerId() {
+        return preferences.getString(KEY_CONTAINER_ID, "0");
+    }
+
+    String getContainerName() {
+        return preferences.getString(KEY_CONTAINER_NAME, "Inicio");
+    }
+
+    void selectServer(DlnaServer server) {
         preferences.edit()
-                .putString(KEY_FOLDER_URI, uri.toString())
-                .putString(KEY_FOLDER_NAME, name == null || name.isBlank() ? "Videos" : name)
+                .putString(KEY_SERVER_UDN, server.getUdn())
+                .putString(KEY_SERVER_NAME, server.getFriendlyName())
+                .putString(KEY_CONTAINER_ID, "0")
+                .putString(KEY_CONTAINER_NAME, "Inicio")
                 .apply();
     }
 
-    String getSortMode() {
-        return preferences.getString(KEY_SORT, SORT_NAME);
-    }
-
-    void toggleSortMode() {
+    void selectContainer(String id, String name) {
         preferences.edit()
-                .putString(KEY_SORT, SORT_NAME.equals(getSortMode()) ? SORT_DATE : SORT_NAME)
+                .putString(KEY_CONTAINER_ID, id)
+                .putString(KEY_CONTAINER_NAME, name)
                 .apply();
     }
 }

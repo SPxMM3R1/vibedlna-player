@@ -16,10 +16,10 @@ import java.util.Locale;
 
 final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> {
     interface Listener {
-        void onVideoSelected(VideoItem video);
+        void onEntrySelected(VideoItem entry);
     }
 
-    private final List<VideoItem> videos = new ArrayList<>();
+    private final List<VideoItem> entries = new ArrayList<>();
     private final ThumbnailRepository thumbnails;
     private final Listener listener;
 
@@ -29,15 +29,15 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
         setHasStableIds(true);
     }
 
-    void submit(List<VideoItem> newVideos) {
-        videos.clear();
-        videos.addAll(newVideos);
+    void submit(List<VideoItem> newEntries) {
+        entries.clear();
+        entries.addAll(newEntries);
         notifyDataSetChanged();
     }
 
     @Override
     public long getItemId(int position) {
-        return videos.get(position).getUri().toString().hashCode();
+        return entries.get(position).stableKey().hashCode();
     }
 
     @NonNull
@@ -45,28 +45,43 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
     public VideoHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         View view = LayoutInflater.from(parent.getContext())
                 .inflate(R.layout.item_video, parent, false);
-        int width = Math.max(1, (parent.getMeasuredWidth() - dp(parent, 54)) / 4);
-        view.setLayoutParams(new RecyclerView.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT));
+        int parentWidth = parent.getMeasuredWidth();
+        if (parentWidth <= 0) {
+            parentWidth = parent.getResources().getDisplayMetrics().widthPixels - dp(parent, 60);
+        }
+        int width = Math.max(dp(parent, 180), (parentWidth - dp(parent, 56)) / 4);
+        view.setLayoutParams(new RecyclerView.LayoutParams(
+                width,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
         return new VideoHolder(view);
     }
 
     @Override
     public void onBindViewHolder(@NonNull VideoHolder holder, int position) {
-        VideoItem video = videos.get(position);
-        String token = video.getUri().toString();
+        VideoItem entry = entries.get(position);
+        String token = entry.stableKey();
         holder.thumbnail.setTag(token);
         holder.thumbnail.setImageDrawable(null);
-        holder.placeholder.setVisibility(View.VISIBLE);
-        holder.title.setText(video.getName());
-        holder.duration.setText(formatDuration(video.getDurationMs()));
-        holder.itemView.setOnClickListener(view -> listener.onVideoSelected(video));
+        holder.title.setText(entry.getName());
+        holder.itemView.setOnClickListener(view -> listener.onEntrySelected(entry));
         holder.itemView.setOnFocusChangeListener((view, focused) -> view.animate()
                 .scaleX(focused ? 1.025f : 1f)
                 .scaleY(focused ? 1.025f : 1f)
                 .setDuration(120)
                 .start());
 
-        thumbnails.load(video, bitmap -> {
+        if (entry.isContainer()) {
+            holder.placeholder.setImageResource(R.drawable.ic_folder_large);
+            holder.placeholder.setVisibility(View.VISIBLE);
+            holder.duration.setText(R.string.remote_folder);
+            return;
+        }
+
+        holder.placeholder.setImageResource(R.drawable.ic_play_outline);
+        holder.placeholder.setVisibility(View.VISIBLE);
+        holder.duration.setText(formatDuration(entry.getDurationMs()));
+        thumbnails.load(entry, bitmap -> {
             if (!token.equals(holder.thumbnail.getTag())) return;
             holder.thumbnail.setImageBitmap(bitmap);
             holder.placeholder.setVisibility(bitmap == null ? View.VISIBLE : View.GONE);
@@ -75,7 +90,7 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
 
     @Override
     public int getItemCount() {
-        return videos.size();
+        return entries.size();
     }
 
     private static String formatDuration(long durationMs) {

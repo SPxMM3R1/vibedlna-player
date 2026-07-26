@@ -2,23 +2,26 @@
 
 [![Android CI](https://github.com/SPxMM3R1/vibedlna-player/actions/workflows/android-ci.yml/badge.svg)](https://github.com/SPxMM3R1/vibedlna-player/actions/workflows/android-ci.yml)
 
-Reproductor de carpetas de video para Android TV con la interfaz compacta de
-VibeM3U.
+Reproductor DLNA para Android TV con la interfaz compacta de VibeM3U.
 
 ## Funcionamiento
 
-- Selecciona una carpeta mediante el selector seguro de Android.
-- Conserva únicamente el permiso y el nombre de esa carpeta.
-- Examina la carpeta y sus subcarpetas automáticamente al abrir la app.
-- Genera y guarda en caché una miniatura del fotograma situado al 50% de cada video.
+- Descubre automáticamente los MediaServers DLNA/UPnP anunciados en la red local.
+- Permite elegir un servidor y navegar sus carpetas virtuales mediante
+  `ContentDirectory:Browse`.
+- Conserva únicamente el identificador del servidor y la carpeta remota elegida.
+- Al abrir la app vuelve a descubrir la red y reconecta el servidor guardado sólo
+  cuando está disponible.
+- Genera y guarda en caché una miniatura del fotograma situado al 50% de cada video
+  remoto.
 - Reproduce siempre desde el comienzo.
 - No guarda posición, progreso, historial, vistos ni último video seleccionado.
 
 ## Controles
 
-- Flechas y `OK`: recorrer y abrir videos.
-- `Menú` o `Configuración`: abrir las opciones.
-- `Atrás`: cerrar opciones, volver a la biblioteca o confirmar la salida.
+- Flechas y `OK`: recorrer carpetas y abrir videos.
+- `Menú` o `Configuración`: cambiar servidor o volver a examinar la red.
+- `Atrás`: cerrar opciones, subir una carpeta o confirmar la salida.
 
 ## Actualizaciones
 
