@@ -1,6 +1,10 @@
 package cl.streambox.tv;
 
 import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.LinkAddress;
+import android.net.LinkProperties;
+import android.net.Network;
 import android.net.wifi.WifiManager;
 
 import org.w3c.dom.Document;
@@ -41,11 +45,12 @@ final class DlnaDiscovery {
     List<DlnaServer> discover(long timeoutMs) {
         WifiManager.MulticastLock lock = acquireMulticastLock();
         try {
-            Map<String, URI> locations = search(timeoutMs);
+            Network network = activeNetwork();
+            Map<String, URI> locations = search(timeoutMs, network);
             Map<String, DlnaServer> servers = new LinkedHashMap<>();
             for (URI location : locations.values()) {
                 try {
-                    DlnaServer server = describe(location);
+                    DlnaServer server = describe(location, network);
                     if (server != null) servers.put(server.getUdn(), server);
                 } catch (Exception ignored) {
                     // Un dispositivo defectuoso no debe ocultar a los demás.
@@ -66,27 +71,41 @@ final class DlnaDiscovery {
         }
     }
 
-    private Map<String, URI> search(long timeoutMs) {
+    private Map<String, URI> search(long timeoutMs, Network network) {
         Map<String, URI> result = new LinkedHashMap<>();
         DatagramSocket socket = null;
         try {
             socket = new DatagramSocket(null);
             socket.setReuseAddress(true);
+            socket.setBroadcast(true);
             socket.bind(new InetSocketAddress(0));
-            socket.setSoTimeout(350);
-            byte[] request = (
-                    "M-SEARCH * HTTP/1.1\r\n"
-                            + "HOST: 239.255.255.250:1900\r\n"
-                            + "MAN: \"ssdp:discover\"\r\n"
-                            + "MX: 2\r\n"
-                            + "ST: " + SEARCH_TARGET + "\r\n"
-                            + "USER-AGENT: Android/1.0 UPnP/1.1 VibeDLNA/0.2\r\n"
-                            + "\r\n"
-            ).getBytes(StandardCharsets.UTF_8);
-            InetAddress group = InetAddress.getByName("239.255.255.250");
-            DatagramPacket query = new DatagramPacket(request, request.length, group, 1900);
-            socket.send(query);
-            socket.send(query);
+            if (network != null) {
+                try {
+                    network.bindSocket(socket);
+                } catch (Exception ignored) {
+                    // La ruta predeterminada sigue siendo un respaldo valido.
+                }
+            }
+            socket.setSoTimeout(400);
+
+            List<InetSocketAddress> destinations = searchDestinations(network);
+            String[] targets = {SEARCH_TARGET, "ssdp:all"};
+            for (String target : targets) {
+                byte[] request = searchRequest(target);
+                for (InetSocketAddress destination : destinations) {
+                    DatagramPacket query = new DatagramPacket(
+                            request,
+                            request.length,
+                            destination
+                    );
+                    try {
+                        socket.send(query);
+                        socket.send(query);
+                    } catch (Exception ignored) {
+                        // Probar los otros destinos aunque uno este filtrado.
+                    }
+                }
+            }
 
             long deadline = System.currentTimeMillis() + timeoutMs;
             byte[] buffer = new byte[16_384];
@@ -106,9 +125,13 @@ final class DlnaDiscovery {
                 Map<String, String> headers = headers(message);
                 String location = headers.get("location");
                 if (location == null || location.isBlank()) continue;
-                URI uri = URI.create(location.trim());
-                if (!isHttp(uri)) continue;
-                result.put(uri.toString(), uri);
+                try {
+                    URI uri = URI.create(location.trim());
+                    if (!isHttp(uri)) continue;
+                    result.put(uri.toString(), uri);
+                } catch (Exception ignored) {
+                    // Ignorar respuestas SSDP mal formadas.
+                }
             }
         } catch (Exception ignored) {
             return result;
@@ -118,8 +141,8 @@ final class DlnaDiscovery {
         return result;
     }
 
-    private DlnaServer describe(URI descriptionUri) throws Exception {
-        HttpURLConnection connection = open(descriptionUri);
+    private DlnaServer describe(URI descriptionUri, Network network) throws Exception {
+        HttpURLConnection connection = open(descriptionUri, network);
         String xml;
         try {
             if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) return null;
@@ -180,6 +203,84 @@ final class DlnaDiscovery {
         }
     }
 
+    private Network activeNetwork() {
+        try {
+            ConnectivityManager manager = (ConnectivityManager)
+                    context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            return manager == null ? null : manager.getActiveNetwork();
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private List<InetSocketAddress> searchDestinations(Network network)
+            throws Exception {
+        Map<String, InetSocketAddress> result = new LinkedHashMap<>();
+        InetAddress multicast = InetAddress.getByName("239.255.255.250");
+        result.put(
+                multicast.getHostAddress(),
+                new InetSocketAddress(multicast, 1900)
+        );
+
+        try {
+            ConnectivityManager manager = (ConnectivityManager)
+                    context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            LinkProperties properties = manager == null || network == null
+                    ? null
+                    : manager.getLinkProperties(network);
+            if (properties != null) {
+                for (LinkAddress link : properties.getLinkAddresses()) {
+                    InetAddress broadcast = directedBroadcast(
+                            link.getAddress(),
+                            link.getPrefixLength()
+                    );
+                    if (broadcast == null) continue;
+                    result.put(
+                            broadcast.getHostAddress(),
+                            new InetSocketAddress(broadcast, 1900)
+                    );
+                }
+            }
+        } catch (Exception ignored) {
+            // El multicast sigue disponible aunque no se pueda calcular broadcast.
+        }
+
+        InetAddress globalBroadcast = InetAddress.getByName("255.255.255.255");
+        result.put(
+                globalBroadcast.getHostAddress(),
+                new InetSocketAddress(globalBroadcast, 1900)
+        );
+        return new ArrayList<>(result.values());
+    }
+
+    static InetAddress directedBroadcast(InetAddress address, int prefixLength) {
+        byte[] bytes = address.getAddress();
+        if (bytes.length != 4 || prefixLength < 0 || prefixLength >= 32) return null;
+        byte[] broadcast = bytes.clone();
+        for (int bit = prefixLength; bit < 32; bit++) {
+            int index = bit / 8;
+            int mask = 1 << (7 - (bit % 8));
+            broadcast[index] = (byte) (broadcast[index] | mask);
+        }
+        try {
+            return InetAddress.getByAddress(broadcast);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static byte[] searchRequest(String target) {
+        return (
+                "M-SEARCH * HTTP/1.1\r\n"
+                        + "HOST: 239.255.255.250:1900\r\n"
+                        + "MAN: \"ssdp:discover\"\r\n"
+                        + "MX: 2\r\n"
+                        + "ST: " + target + "\r\n"
+                        + "USER-AGENT: Android/1.0 UPnP/1.1 VibeDLNA/0.3\r\n"
+                        + "\r\n"
+        ).getBytes(StandardCharsets.UTF_8);
+    }
+
     private static Map<String, String> headers(String message) {
         Map<String, String> result = new HashMap<>();
         String[] lines = message.split("\\r?\\n");
@@ -194,11 +295,20 @@ final class DlnaDiscovery {
         return result;
     }
 
-    private static HttpURLConnection open(URI uri) throws Exception {
-        HttpURLConnection connection = (HttpURLConnection) uri.toURL().openConnection();
+    private static HttpURLConnection open(URI uri, Network network) throws Exception {
+        HttpURLConnection connection;
+        try {
+            connection = (HttpURLConnection) (
+                    network == null
+                            ? uri.toURL().openConnection()
+                            : network.openConnection(uri.toURL())
+            );
+        } catch (Exception ignored) {
+            connection = (HttpURLConnection) uri.toURL().openConnection();
+        }
         connection.setConnectTimeout(5_000);
         connection.setReadTimeout(8_000);
-        connection.setRequestProperty("User-Agent", "VibeDLNA/0.2 UPnP/1.1");
+        connection.setRequestProperty("User-Agent", "VibeDLNA/0.3 UPnP/1.1");
         return connection;
     }
 

@@ -110,7 +110,7 @@ final class DlnaContentRepository {
         connection.setDoOutput(true);
         connection.setRequestProperty("Content-Type", "text/xml; charset=\"utf-8\"");
         connection.setRequestProperty("SOAPACTION", "\"" + serviceType + "#Browse\"");
-        connection.setRequestProperty("User-Agent", "VibeDLNA/0.2 UPnP/1.1");
+        connection.setRequestProperty("User-Agent", "VibeDLNA/0.3 UPnP/1.1");
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         connection.setFixedLengthStreamingMode(bytes.length);
         try (OutputStream output = connection.getOutputStream()) {
