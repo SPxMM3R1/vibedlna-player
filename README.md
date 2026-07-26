@@ -7,6 +7,8 @@ Reproductor DLNA para Android TV con la interfaz compacta de VibeM3U.
 ## Funcionamiento
 
 - Descubre automáticamente los MediaServers DLNA/UPnP anunciados en la red local.
+- Busca por SSDP multicast y broadcast de la subred para mantener compatibilidad
+  con [VibeDLNA](https://github.com/SPxMM3R1/VibeDLNA) y redes que filtran multicast.
 - Permite elegir un servidor y navegar sus carpetas virtuales mediante
   `ContentDirectory:Browse`.
 - Conserva únicamente el identificador del servidor y la carpeta remota elegida.
