@@ -25,6 +25,24 @@
         android:textColor="@color/white"
         android:textSize="18sp" />
 
+    <SeekBar
+        android:id="@+id/player_seek_bar"
+        android:layout_width="match_parent"
+        android:layout_height="14dp"
+        android:layout_gravity="bottom"
+        android:layout_marginStart="44dp"
+        android:layout_marginEnd="44dp"
+        android:layout_marginBottom="108dp"
+        android:clickable="false"
+        android:focusable="false"
+        android:max="1000"
+        android:paddingStart="0dp"
+        android:paddingEnd="0dp"
+        android:progressDrawable="@drawable/player_seek_progress"
+        android:splitTrack="false"
+        android:thumb="@drawable/player_seek_thumb"
+        android:thumbOffset="5dp" />
+
     <LinearLayout
         android:id="@+id/player_overlay"
         android:layout_width="match_parent"
@@ -45,34 +63,19 @@
             android:contentDescription="@null"
             android:src="@drawable/ic_vibedlna" />
 
-        <LinearLayout
+        <TextView
+            android:id="@+id/player_title"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_marginStart="14dp"
             android:layout_weight="1"
+            android:ellipsize="end"
             android:gravity="center_vertical"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/player_title"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:includeFontPadding="false"
-                android:maxLines="1"
-                android:textColor="@color/white"
-                android:textSize="17sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:includeFontPadding="false"
-                android:text="@string/remote_video_label"
-                android:textColor="@color/cyan"
-                android:textSize="10sp" />
-        </LinearLayout>
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textColor="@color/white"
+            android:textSize="17sp"
+            android:textStyle="bold" />
 
         <TextView
             android:id="@+id/player_diagnostics"
@@ -82,12 +85,5 @@
             android:textColor="@color/muted"
             android:textSize="11sp" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="24dp"
-            android:text="@string/player_hint"
-            android:textColor="#90A4AE"
-            android:textSize="9sp" />
     </LinearLayout>
 </FrameLayout>

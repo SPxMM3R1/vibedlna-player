@@ -85,14 +85,21 @@
                 android:layout_height="1dp"
                 android:layout_weight="1" />
 
-            <TextView
+            <Button
+                android:id="@+id/options_button"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_height="30dp"
+                android:background="@drawable/focus_button_compact"
                 android:drawableStart="@drawable/ic_settings_small"
                 android:drawablePadding="6dp"
+                android:focusable="true"
                 android:includeFontPadding="false"
+                android:minHeight="0dp"
+                android:minWidth="0dp"
+                android:nextFocusDown="@id/video_grid"
                 android:text="@string/options"
-                android:textColor="@color/muted"
+                android:textAllCaps="false"
+                android:textColor="@color/white"
                 android:textSize="11sp" />
         </LinearLayout>
 

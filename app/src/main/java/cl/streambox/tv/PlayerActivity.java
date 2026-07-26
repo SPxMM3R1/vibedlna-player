@@ -17,6 +17,7 @@ import android.window.OnBackInvokedDispatcher;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.OptIn;
+import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
@@ -26,6 +27,7 @@ import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
 
+import android.widget.SeekBar;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -35,6 +37,9 @@ public final class PlayerActivity extends Activity {
     static final String EXTRA_TITLE = "video_title";
     static final String EXTRA_DURATION = "video_duration";
     private static final long OVERLAY_TIMEOUT_MS = 4_500L;
+    private static final long SEEK_STEP_MS = 10_000L;
+    private static final long SEEK_FAST_STEP_MS = 30_000L;
+    private static final int PROGRESS_MAX = 1_000;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private PlayerView playerView;
@@ -42,11 +47,25 @@ public final class PlayerActivity extends Activity {
     private TextView clock;
     private TextView title;
     private TextView diagnostics;
+    private SeekBar seekBar;
     private ExoPlayer player;
+    private long declaredDurationMs;
+
+    private final Runnable updateProgress = new Runnable() {
+        @Override
+        public void run() {
+            updateSeekProgress();
+            if (overlay.getVisibility() == View.VISIBLE) {
+                mainHandler.postDelayed(this, 250L);
+            }
+        }
+    };
 
     private final Runnable hideOverlay = () -> {
         overlay.setVisibility(View.GONE);
+        seekBar.setVisibility(View.GONE);
         clock.setVisibility(View.GONE);
+        mainHandler.removeCallbacks(updateProgress);
     };
 
     private final Runnable updateClock = new Runnable() {
@@ -66,11 +85,13 @@ public final class PlayerActivity extends Activity {
         clock = findViewById(R.id.player_clock);
         title = findViewById(R.id.player_title);
         diagnostics = findViewById(R.id.player_diagnostics);
+        seekBar = findViewById(R.id.player_seek_bar);
         registerBackCallback();
         enterImmersiveMode();
 
         String uriValue = getIntent().getStringExtra(EXTRA_URI);
         String titleValue = getIntent().getStringExtra(EXTRA_TITLE);
+        declaredDurationMs = getIntent().getLongExtra(EXTRA_DURATION, 0L);
         if (uriValue == null || uriValue.isBlank()) {
             finish();
             return;
@@ -130,16 +151,58 @@ public final class PlayerActivity extends Activity {
 
     private void showOverlay(boolean keepVisible) {
         overlay.setVisibility(View.VISIBLE);
+        seekBar.setVisibility(View.VISIBLE);
         clock.setVisibility(View.VISIBLE);
         mainHandler.removeCallbacks(hideOverlay);
+        mainHandler.removeCallbacks(updateProgress);
+        updateProgress.run();
         if (!keepVisible) mainHandler.postDelayed(hideOverlay, OVERLAY_TIMEOUT_MS);
+    }
+
+    private long playbackDuration() {
+        if (player == null) return declaredDurationMs;
+        long duration = player.getDuration();
+        return duration <= 0L || duration == C.TIME_UNSET ? declaredDurationMs : duration;
+    }
+
+    private void updateSeekProgress() {
+        if (player == null) return;
+        seekBar.setProgress(PlaybackMath.progress(
+                Math.max(0L, player.getCurrentPosition()),
+                playbackDuration(),
+                PROGRESS_MAX
+        ));
+    }
+
+    private void seekBy(long deltaMs) {
+        if (player == null) return;
+        long target = PlaybackMath.clampSeekPosition(
+                player.getCurrentPosition(),
+                deltaMs,
+                playbackDuration()
+        );
+        player.seekTo(target);
+        showOverlay(false);
     }
 
     @Override
     @SuppressLint("GestureBackNavigation")
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
             int keyCode = event.getKeyCode();
+            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT
+                    || keyCode == KeyEvent.KEYCODE_MEDIA_REWIND) {
+                long step = event.getRepeatCount() >= 5 ? SEEK_FAST_STEP_MS : SEEK_STEP_MS;
+                seekBy(-step);
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
+                    || keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) {
+                long step = event.getRepeatCount() >= 5 ? SEEK_FAST_STEP_MS : SEEK_STEP_MS;
+                seekBy(step);
+                return true;
+            }
+            if (event.getRepeatCount() != 0) return super.dispatchKeyEvent(event);
             if (keyCode == KeyEvent.KEYCODE_BACK) {
                 handleBackAction();
                 return true;

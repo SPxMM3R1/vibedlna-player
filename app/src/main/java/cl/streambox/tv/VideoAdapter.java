@@ -12,7 +12,6 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> {
     interface Listener {
@@ -74,13 +73,11 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
         if (entry.isContainer()) {
             holder.placeholder.setImageResource(R.drawable.ic_folder_large);
             holder.placeholder.setVisibility(View.VISIBLE);
-            holder.duration.setText(R.string.remote_folder);
             return;
         }
 
         holder.placeholder.setImageResource(R.drawable.ic_play_outline);
         holder.placeholder.setVisibility(View.VISIBLE);
-        holder.duration.setText(formatDuration(entry.getDurationMs()));
         thumbnails.load(entry, bitmap -> {
             if (!token.equals(holder.thumbnail.getTag())) return;
             holder.thumbnail.setImageBitmap(bitmap);
@@ -93,17 +90,6 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
         return entries.size();
     }
 
-    private static String formatDuration(long durationMs) {
-        if (durationMs <= 0) return "--:--";
-        long totalSeconds = durationMs / 1_000L;
-        long hours = totalSeconds / 3_600L;
-        long minutes = (totalSeconds % 3_600L) / 60L;
-        long seconds = totalSeconds % 60L;
-        return hours > 0
-                ? String.format(Locale.ROOT, "%02d:%02d:%02d", hours, minutes, seconds)
-                : String.format(Locale.ROOT, "%02d:%02d", minutes, seconds);
-    }
-
     private static int dp(View view, int value) {
         return Math.round(value * view.getResources().getDisplayMetrics().density);
     }
@@ -112,14 +98,12 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
         final ImageView thumbnail;
         final ImageView placeholder;
         final TextView title;
-        final TextView duration;
 
         VideoHolder(@NonNull View itemView) {
             super(itemView);
             thumbnail = itemView.findViewById(R.id.video_thumbnail);
             placeholder = itemView.findViewById(R.id.video_placeholder);
             title = itemView.findViewById(R.id.video_title);
-            duration = itemView.findViewById(R.id.video_duration);
         }
     }
 }

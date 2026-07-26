@@ -58,6 +58,7 @@ public final class MainActivity extends Activity {
     private TextView folderLabel;
     private TextView entryCount;
     private TextView clock;
+    private Button optionsButton;
     private View optionsScrim;
     private View optionsPanel;
     private Button serverOption;
@@ -118,6 +119,7 @@ public final class MainActivity extends Activity {
         folderLabel = findViewById(R.id.folder_label);
         entryCount = findViewById(R.id.video_count);
         clock = findViewById(R.id.clock);
+        optionsButton = findViewById(R.id.options_button);
         optionsScrim = findViewById(R.id.options_scrim);
         optionsPanel = findViewById(R.id.options_panel);
         serverOption = findViewById(R.id.server_option);
@@ -146,6 +148,7 @@ public final class MainActivity extends Activity {
 
     private void configureActions() {
         searchButton.setOnClickListener(view -> discoverServers(false));
+        optionsButton.setOnClickListener(view -> showOptions());
         serverOption.setOnClickListener(view -> {
             closeOptions();
             if (availableServers.isEmpty()) discoverServers(false);
@@ -338,11 +341,7 @@ public final class MainActivity extends Activity {
         } else {
             emptyState.setVisibility(View.GONE);
             videoGrid.setVisibility(View.VISIBLE);
-            videoGrid.post(() -> {
-                RecyclerView.ViewHolder holder =
-                        videoGrid.findViewHolderForAdapterPosition(0);
-                if (holder != null) holder.itemView.requestFocus();
-            });
+            videoGrid.post(this::focusFirstEntry);
         }
     }
 
@@ -435,9 +434,15 @@ public final class MainActivity extends Activity {
         if (optionsPanel.getVisibility() != View.VISIBLE) return;
         optionsPanel.setVisibility(View.GONE);
         optionsScrim.setVisibility(View.GONE);
-        if (!entries.isEmpty()) videoGrid.requestFocus();
+        if (!entries.isEmpty()) focusFirstEntry();
         else searchButton.requestFocus();
         enterImmersiveMode();
+    }
+
+    private boolean focusFirstEntry() {
+        RecyclerView.ViewHolder holder = videoGrid.findViewHolderForAdapterPosition(0);
+        if (holder == null) return videoGrid.requestFocus();
+        return holder.itemView.requestFocus();
     }
 
     private void updateOptionValues() {
@@ -465,6 +470,26 @@ public final class MainActivity extends Activity {
                     && (keyCode == KeyEvent.KEYCODE_MENU
                     || keyCode == KeyEvent.KEYCODE_SETTINGS)) {
                 showOptions();
+                return true;
+            }
+            if (optionsPanel.getVisibility() != View.VISIBLE
+                    && keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                View focused = getCurrentFocus();
+                RecyclerView.ViewHolder holder = focused == null
+                        ? null
+                        : videoGrid.findContainingViewHolder(focused);
+                if (holder != null
+                        && holder.getBindingAdapterPosition() >= 0
+                        && holder.getBindingAdapterPosition() < 4) {
+                    optionsButton.requestFocus();
+                    return true;
+                }
+            }
+            if (optionsPanel.getVisibility() != View.VISIBLE
+                    && keyCode == KeyEvent.KEYCODE_DPAD_DOWN
+                    && getCurrentFocus() == optionsButton
+                    && !entries.isEmpty()) {
+                focusFirstEntry();
                 return true;
             }
         }
