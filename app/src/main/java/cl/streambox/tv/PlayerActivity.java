@@ -29,7 +29,6 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 
-@UnstableApi
 public final class PlayerActivity extends Activity {
     static final String EXTRA_URI = "video_uri";
     static final String EXTRA_TITLE = "video_title";
@@ -108,6 +107,7 @@ public final class PlayerActivity extends Activity {
         player.play();
     }
 
+    @UnstableApi
     private void updateDiagnostics() {
         if (player == null) return;
         Format video = player.getVideoFormat();
