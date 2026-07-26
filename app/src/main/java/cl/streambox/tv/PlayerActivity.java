@@ -1,5 +1,6 @@
 package cl.streambox.tv;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.res.Configuration;
 import android.net.Uri;
@@ -132,6 +133,7 @@ public final class PlayerActivity extends Activity {
     }
 
     @Override
+    @SuppressLint("GestureBackNavigation")
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
             int keyCode = event.getKeyCode();
