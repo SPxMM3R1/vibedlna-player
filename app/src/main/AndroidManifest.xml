@@ -14,12 +14,11 @@
 
     <application
         android:allowBackup="true"
-        android:banner="@drawable/vibem3u_banner"
-        android:icon="@drawable/vibem3u_banner"
+        android:banner="@drawable/vibedlna_banner"
+        android:icon="@drawable/ic_vibedlna"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.VibeM3U"
-        android:usesCleartextTraffic="true">
+        android:theme="@style/Theme.VibeDLNA">
 
         <provider
             android:name=".VibeFileProvider"
@@ -32,7 +31,7 @@
         </provider>
 
         <activity
-            android:name=".SettingsActivity"
+            android:name=".PlayerActivity"
             android:exported="false"
             android:screenOrientation="landscape" />
 

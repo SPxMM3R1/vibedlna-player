@@ -267,7 +267,7 @@ final class AppUpdater {
             );
             Intent installIntent = new Intent(Intent.ACTION_INSTALL_PACKAGE);
             installIntent.setData(contentUri);
-            installIntent.setClipData(ClipData.newRawUri("VibeM3U", contentUri));
+            installIntent.setClipData(ClipData.newRawUri("VibeDLNA Player", contentUri));
             installIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             if (installIntent.resolveActivity(activity.getPackageManager()) == null) {
                 throw new IllegalStateException("No hay un instalador de APK disponible.");
@@ -299,7 +299,7 @@ final class AppUpdater {
         PackageInfo candidate = packageManager.getPackageArchiveInfo(apk.getAbsolutePath(), flags);
         PackageInfo installed = packageManager.getPackageInfo(activity.getPackageName(), flags);
         if (candidate == null || !activity.getPackageName().equals(candidate.packageName)) {
-            throw new SecurityException("El APK no pertenece a VibeM3U.");
+            throw new SecurityException("El APK no pertenece a VibeDLNA Player.");
         }
 
         long candidateVersion = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P

@@ -6,7 +6,7 @@ android {
     namespace = "cl.streambox.tv"
     compileSdk = 36
 
-    val ciKeystorePath = System.getenv("VIBEM3U_KEYSTORE_PATH")
+    val ciKeystorePath = System.getenv("VIBEDLNA_KEYSTORE_PATH")
     val ciSigningConfig = if (!ciKeystorePath.isNullOrBlank()) {
         signingConfigs.create("github") {
             storeFile = file(ciKeystorePath)
@@ -19,11 +19,11 @@ android {
     }
 
     defaultConfig {
-        applicationId = "cl.streambox.tv"
+        applicationId = "cl.vibedlna.player"
         minSdk = 23
         targetSdk = 36
-        versionCode = 5
-        versionName = "0.4.0"
+        versionCode = 1
+        versionName = "0.1.0"
     }
 
     buildTypes {
@@ -54,10 +54,10 @@ android {
 
 dependencies {
     implementation("androidx.core:core:1.17.0")
+    implementation("androidx.documentfile:documentfile:1.1.0")
     implementation("androidx.media3:media3-exoplayer:1.10.1")
-    implementation("androidx.media3:media3-exoplayer-hls:1.10.1")
-    implementation("androidx.media3:media3-exoplayer-dash:1.10.1")
     implementation("androidx.media3:media3-ui:1.10.1")
+    implementation("androidx.recyclerview:recyclerview:1.4.0")
 
     testImplementation("junit:junit:4.13.2")
 }

@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "VibeM3U"
+rootProject.name = "VibeDLNAPlayer"
 include(":app")
