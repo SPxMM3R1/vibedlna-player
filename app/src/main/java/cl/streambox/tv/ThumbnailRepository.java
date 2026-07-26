@@ -60,7 +60,7 @@ final class ThumbnailRepository {
             String scheme = video.getUri().getScheme();
             if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
                 Map<String, String> headers = new HashMap<>();
-                headers.put("User-Agent", "VibeDLNA/0.3");
+                headers.put("User-Agent", "VibeDLNA/0.3.1");
                 headers.put("transferMode.dlna.org", "Streaming");
                 retriever.setDataSource(
                         video.getUri().toString(),
