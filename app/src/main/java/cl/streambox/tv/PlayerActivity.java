@@ -16,6 +16,7 @@ import android.widget.TextView;
 import android.window.OnBackInvokedDispatcher;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.OptIn;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
@@ -107,7 +108,7 @@ public final class PlayerActivity extends Activity {
         player.play();
     }
 
-    @UnstableApi
+    @OptIn(markerClass = UnstableApi.class)
     private void updateDiagnostics() {
         if (player == null) return;
         Format video = player.getVideoFormat();
