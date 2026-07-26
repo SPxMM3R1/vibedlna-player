@@ -1,25 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">VibeDLNA Player</string>
-    <string name="library_title">Biblioteca de videos</string>
-    <string name="folder_label">Carpeta: %1$s</string>
-    <string name="video_count">%1$d videos</string>
-    <string name="choose_folder">Seleccionar carpeta</string>
-    <string name="empty_library_title">Selecciona una carpeta de videos</string>
-    <string name="empty_library_description">VibeDLNA Player la examinará automáticamente cada vez que abras la aplicación.</string>
-    <string name="loading_library">Buscando videos…</string>
-    <string name="library_error">No se pudo leer la carpeta seleccionada.</string>
+    <string name="source_label">%1$s  ›  %2$s</string>
+    <string name="entry_count">%1$d elementos</string>
+    <string name="searching_servers">Buscando servidores DLNA…</string>
+    <string name="searching_servers_description">Detectando los MediaServers anunciados en tu red local.</string>
+    <string name="no_servers">No se encontraron servidores DLNA</string>
+    <string name="no_servers_description">Comprueba que el servidor esté encendido y que Android TV esté conectado a la misma red.</string>
+    <string name="saved_server_unavailable">El servidor guardado no está disponible</string>
+    <string name="search_again">Buscar nuevamente</string>
+    <string name="loading_remote_folder">Cargando carpeta remota…</string>
+    <string name="remote_folder_error">No se pudo leer la carpeta del servidor DLNA.</string>
+    <string name="empty_remote_folder">Esta carpeta no contiene videos ni subcarpetas.</string>
     <string name="options">Opciones</string>
-    <string name="video_folder">Carpeta de videos</string>
-    <string name="browse_folders">Explorar carpetas</string>
-    <string name="select">Seleccionar</string>
-    <string name="automatic_scan">Escaneo automático</string>
-    <string name="on_app_open">Al abrir la app</string>
+    <string name="dlna_server">Servidor DLNA</string>
+    <string name="select_server">Seleccionar servidor</string>
+    <string name="search_servers">Buscar servidores</string>
+    <string name="search_network_again">Volver a examinar la red</string>
+    <string name="current_remote_folder">Carpeta remota actual</string>
+    <string name="select_dlna_server">Seleccionar servidor DLNA</string>
+    <string name="select_dlna_server_description">Servidores MediaServer disponibles en esta red.</string>
     <string name="thumbnails">Miniaturas</string>
     <string name="frame_at_half" formatted="false">Fotograma al 50%</string>
-    <string name="sort_by">Ordenar por</string>
-    <string name="sort_name">Nombre</string>
-    <string name="sort_date">Fecha</string>
     <string name="privacy_note">El progreso de reproducción no se guarda</string>
     <string name="options_hint">OK  Seleccionar     Atrás  Cerrar</string>
     <string name="exit_dialog_title">¿Salir de VibeDLNA Player?</string>
@@ -27,7 +29,8 @@
     <string name="exit">Salir</string>
     <string name="unknown_duration">--:--</string>
     <string name="player_hint">OK  Información     Atrás  Biblioteca</string>
-    <string name="video_label">VIDEO LOCAL</string>
+    <string name="remote_video_label">VIDEO DLNA</string>
+    <string name="remote_folder">CARPETA DLNA</string>
     <string name="update_title">Actualización disponible</string>
     <string name="update_available">VibeDLNA Player %1$s está lista para instalar.</string>
     <string name="update_later">Más tarde</string>

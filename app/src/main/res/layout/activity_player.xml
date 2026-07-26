@@ -69,7 +69,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="3dp"
                 android:includeFontPadding="false"
-                android:text="@string/video_label"
+                android:text="@string/remote_video_label"
                 android:textColor="@color/cyan"
                 android:textSize="10sp" />
         </LinearLayout>

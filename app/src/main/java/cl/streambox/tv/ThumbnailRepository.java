@@ -10,7 +10,9 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -55,7 +57,18 @@ final class ThumbnailRepository {
 
         MediaMetadataRetriever retriever = new MediaMetadataRetriever();
         try {
-            retriever.setDataSource(context, video.getUri());
+            String scheme = video.getUri().getScheme();
+            if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
+                Map<String, String> headers = new HashMap<>();
+                headers.put("User-Agent", "VibeDLNA/0.2");
+                headers.put("transferMode.dlna.org", "Streaming");
+                retriever.setDataSource(
+                        video.getUri().toString(),
+                        headers
+                );
+            } else {
+                retriever.setDataSource(context, video.getUri());
+            }
             long durationMs = video.getDurationMs();
             if (durationMs <= 0) {
                 String value = retriever.extractMetadata(

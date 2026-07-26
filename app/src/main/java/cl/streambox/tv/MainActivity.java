@@ -8,11 +8,11 @@ import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.Window;
@@ -20,55 +20,65 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.window.OnBackInvokedDispatcher;
 
 import androidx.annotation.NonNull;
-import androidx.documentfile.provider.DocumentFile;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
-    private static final int FOLDER_REQUEST = 1001;
-
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private final ExecutorService libraryExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService dlnaExecutor = Executors.newFixedThreadPool(2);
     private final ExecutorService updateExecutor = Executors.newSingleThreadExecutor();
-    private final List<VideoItem> videos = new ArrayList<>();
+    private final List<VideoItem> entries = new ArrayList<>();
+    private final List<DlnaServer> availableServers = new ArrayList<>();
+    private final Map<String, String> containerNames = new HashMap<>();
 
     private RecyclerView videoGrid;
     private View emptyState;
     private TextView emptyTitle;
     private TextView emptyDescription;
     private ProgressBar libraryProgress;
-    private Button chooseFolderButton;
+    private Button searchButton;
     private TextView folderLabel;
-    private TextView videoCount;
+    private TextView entryCount;
     private TextView clock;
     private View optionsScrim;
     private View optionsPanel;
-    private Button folderOption;
-    private Button rescanOption;
-    private Button sortOption;
+    private Button serverOption;
+    private Button discoverOption;
+    private TextView serverValue;
     private TextView folderValue;
-    private TextView sortValue;
 
     private LibraryPreferences preferences;
-    private VideoLibraryRepository libraryRepository;
+    private DlnaDiscovery discovery;
+    private DlnaContentRepository contentRepository;
     private ThumbnailRepository thumbnailRepository;
     private VideoAdapter adapter;
     private AppUpdater appUpdater;
+    private DlnaServer currentServer;
+    private String currentContainerId = "0";
+    private String currentContainerName = "Inicio";
+    private String currentParentId;
+    private Dialog serverDialog;
     private Dialog exitDialog;
-    private int scanGeneration;
+    private int discoveryGeneration;
+    private int browseGeneration;
 
     private final Runnable updateClock = new Runnable() {
         @Override
@@ -83,7 +93,8 @@ public final class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         preferences = new LibraryPreferences(this);
-        libraryRepository = new VideoLibraryRepository(this);
+        discovery = new DlnaDiscovery(this);
+        contentRepository = new DlnaContentRepository();
         thumbnailRepository = new ThumbnailRepository(this, mainHandler);
         bindViews();
         configureGrid();
@@ -94,13 +105,7 @@ public final class MainActivity extends Activity {
         appUpdater = new AppUpdater(this, updateExecutor, mainHandler);
         appUpdater.checkForUpdates();
         updateClock.run();
-
-        Uri folderUri = preferences.getFolderUri();
-        if (folderUri == null) {
-            showFolderPrompt();
-        } else {
-            scanLibrary(folderUri);
-        }
+        discoverServers(true);
     }
 
     private void bindViews() {
@@ -109,21 +114,20 @@ public final class MainActivity extends Activity {
         emptyTitle = findViewById(R.id.empty_title);
         emptyDescription = findViewById(R.id.empty_description);
         libraryProgress = findViewById(R.id.library_progress);
-        chooseFolderButton = findViewById(R.id.choose_folder_button);
+        searchButton = findViewById(R.id.choose_folder_button);
         folderLabel = findViewById(R.id.folder_label);
-        videoCount = findViewById(R.id.video_count);
+        entryCount = findViewById(R.id.video_count);
         clock = findViewById(R.id.clock);
         optionsScrim = findViewById(R.id.options_scrim);
         optionsPanel = findViewById(R.id.options_panel);
-        folderOption = findViewById(R.id.folder_option);
-        rescanOption = findViewById(R.id.rescan_option);
-        sortOption = findViewById(R.id.sort_option);
+        serverOption = findViewById(R.id.server_option);
+        discoverOption = findViewById(R.id.discover_option);
+        serverValue = findViewById(R.id.server_value);
         folderValue = findViewById(R.id.folder_value);
-        sortValue = findViewById(R.id.sort_value);
     }
 
     private void configureGrid() {
-        adapter = new VideoAdapter(thumbnailRepository, this::openVideo);
+        adapter = new VideoAdapter(thumbnailRepository, this::openEntry);
         videoGrid.setLayoutManager(new GridLayoutManager(this, 4));
         videoGrid.setAdapter(adapter);
         videoGrid.addItemDecoration(new RecyclerView.ItemDecoration() {
@@ -141,166 +145,311 @@ public final class MainActivity extends Activity {
     }
 
     private void configureActions() {
-        chooseFolderButton.setOnClickListener(view -> openFolderPicker());
-        folderOption.setOnClickListener(view -> openFolderPicker());
-        rescanOption.setOnClickListener(view -> {
+        searchButton.setOnClickListener(view -> discoverServers(false));
+        serverOption.setOnClickListener(view -> {
             closeOptions();
-            Uri folderUri = preferences.getFolderUri();
-            if (folderUri == null) openFolderPicker();
-            else scanLibrary(folderUri);
+            if (availableServers.isEmpty()) discoverServers(false);
+            else showServerDialog();
         });
-        sortOption.setOnClickListener(view -> {
-            preferences.toggleSortMode();
-            updateOptionValues();
+        discoverOption.setOnClickListener(view -> {
             closeOptions();
-            Uri folderUri = preferences.getFolderUri();
-            if (folderUri != null) scanLibrary(folderUri);
+            discoverServers(false);
         });
     }
 
-    private void scanLibrary(Uri folderUri) {
-        int generation = ++scanGeneration;
-        emptyState.setVisibility(View.VISIBLE);
-        emptyTitle.setText(R.string.loading_library);
-        emptyDescription.setVisibility(View.GONE);
-        libraryProgress.setVisibility(View.VISIBLE);
-        chooseFolderButton.setVisibility(View.GONE);
-        videoGrid.setVisibility(View.GONE);
-        folderLabel.setText(getString(R.string.folder_label, preferences.getFolderName()));
-        videoCount.setText(getString(R.string.video_count, 0));
-
-        libraryExecutor.submit(() -> {
-            List<VideoItem> found;
-            try {
-                found = libraryRepository.scan(folderUri, preferences.getSortMode());
-            } catch (Exception ignored) {
-                found = null;
-            }
-            List<VideoItem> result = found;
+    private void discoverServers(boolean automatic) {
+        int generation = ++discoveryGeneration;
+        showLoading(
+                R.string.searching_servers,
+                R.string.searching_servers_description
+        );
+        dlnaExecutor.submit(() -> {
+            List<DlnaServer> found = discovery.discover(4_000L);
             mainHandler.post(() -> {
-                if (generation != scanGeneration || isFinishing()) return;
-                if (result == null) {
-                    showLibraryError();
+                if (generation != discoveryGeneration || isFinishing()) return;
+                availableServers.clear();
+                availableServers.addAll(found);
+                String savedUdn = preferences.getServerUdn();
+                DlnaServer saved = findServer(savedUdn);
+
+                if (automatic && saved != null) {
+                    selectAvailableServer(saved, false);
                     return;
                 }
-                videos.clear();
-                videos.addAll(result);
-                adapter.submit(videos);
-                videoCount.setText(getString(R.string.video_count, videos.size()));
-                if (videos.isEmpty()) {
-                    emptyState.setVisibility(View.VISIBLE);
-                    emptyTitle.setText(R.string.empty_library_title);
-                    emptyDescription.setText(R.string.library_error);
-                    emptyDescription.setVisibility(View.VISIBLE);
-                    libraryProgress.setVisibility(View.GONE);
-                    chooseFolderButton.setVisibility(View.VISIBLE);
-                    chooseFolderButton.requestFocus();
-                } else {
-                    emptyState.setVisibility(View.GONE);
-                    videoGrid.setVisibility(View.VISIBLE);
-                    videoGrid.post(() -> {
-                        RecyclerView.ViewHolder holder =
-                                videoGrid.findViewHolderForAdapterPosition(0);
-                        if (holder != null) holder.itemView.requestFocus();
-                    });
+                if (availableServers.isEmpty()) {
+                    showNoServers();
+                    return;
                 }
-                updateOptionValues();
+                if (automatic && !savedUdn.isBlank()) {
+                    emptyTitle.setText(R.string.saved_server_unavailable);
+                    emptyDescription.setText(R.string.no_servers_description);
+                    libraryProgress.setVisibility(View.GONE);
+                    searchButton.setVisibility(View.VISIBLE);
+                }
+                showServerDialog();
             });
         });
     }
 
-    private void showFolderPrompt() {
-        folderLabel.setText(getString(R.string.folder_label, "Sin seleccionar"));
-        videoCount.setText(getString(R.string.video_count, 0));
+    private DlnaServer findServer(String udn) {
+        if (udn == null || udn.isBlank()) return null;
+        for (DlnaServer server : availableServers) {
+            if (udn.equals(server.getUdn())) return server;
+        }
+        return null;
+    }
+
+    private void showServerDialog() {
+        if (availableServers.isEmpty()) {
+            showNoServers();
+            return;
+        }
+        if (serverDialog != null && serverDialog.isShowing()) return;
+
+        Dialog dialog = new Dialog(this);
+        serverDialog = dialog;
+        dialog.setContentView(R.layout.dialog_dlna_servers);
+        dialog.setCanceledOnTouchOutside(false);
+        LinearLayout container = dialog.findViewById(R.id.server_options);
+        Button focusTarget = null;
+        String savedUdn = preferences.getServerUdn();
+        for (DlnaServer server : availableServers) {
+            Button button = createServerButton(server.getFriendlyName());
+            button.setOnClickListener(view -> {
+                dialog.dismiss();
+                selectAvailableServer(server, true);
+            });
+            container.addView(button);
+            if (focusTarget == null || server.getUdn().equals(savedUdn)) {
+                focusTarget = button;
+            }
+        }
+        Button initialFocus = focusTarget;
+        dialog.setOnShowListener(ignored -> {
+            if (initialFocus != null) initialFocus.requestFocus();
+        });
+        dialog.setOnDismissListener(ignored -> {
+            if (serverDialog == dialog) serverDialog = null;
+            if (!isFinishing()) enterImmersiveMode();
+        });
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            WindowManager.LayoutParams attributes = window.getAttributes();
+            attributes.width = WindowManager.LayoutParams.WRAP_CONTENT;
+            attributes.height = WindowManager.LayoutParams.WRAP_CONTENT;
+            attributes.dimAmount = 0.72f;
+            window.setAttributes(attributes);
+        }
+        dialog.show();
+    }
+
+    private Button createServerButton(String name) {
+        Button button = new Button(this);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(48)
+        );
+        params.bottomMargin = dp(8);
+        button.setLayoutParams(params);
+        button.setBackgroundResource(R.drawable.focus_button_compact);
+        button.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        button.setIncludeFontPadding(false);
+        button.setMinHeight(0);
+        button.setMinWidth(0);
+        button.setPadding(dp(14), 0, dp(14), 0);
+        button.setText(name);
+        button.setTextColor(getColor(R.color.white));
+        button.setTextSize(11);
+        button.setAllCaps(false);
+        return button;
+    }
+
+    private void selectAvailableServer(DlnaServer server, boolean resetFolder) {
+        currentServer = server;
+        if (resetFolder || !server.getUdn().equals(preferences.getServerUdn())) {
+            preferences.selectServer(server);
+        }
+        String containerId = resetFolder ? "0" : preferences.getContainerId();
+        String containerName = resetFolder ? "Inicio" : preferences.getContainerName();
+        browseContainer(containerId, containerName);
+    }
+
+    private void browseContainer(String containerId, String containerName) {
+        if (currentServer == null) return;
+        int generation = ++browseGeneration;
+        showLoading(
+                R.string.loading_remote_folder,
+                R.string.searching_servers_description
+        );
+        DlnaServer server = currentServer;
+        dlnaExecutor.submit(() -> {
+            DlnaContentRepository.BrowseResult result;
+            try {
+                result = contentRepository.browse(server, containerId);
+            } catch (Exception ignored) {
+                result = null;
+            }
+            DlnaContentRepository.BrowseResult loaded = result;
+            mainHandler.post(() -> {
+                if (generation != browseGeneration || isFinishing()
+                        || currentServer != server) return;
+                if (loaded == null) {
+                    showBrowseError();
+                    return;
+                }
+                currentContainerId = containerId;
+                currentContainerName = containerName;
+                currentParentId = loaded.parentId;
+                containerNames.put(containerId, containerName);
+                preferences.selectContainer(containerId, containerName);
+                showEntries(loaded.entries);
+            });
+        });
+    }
+
+    private void showEntries(List<VideoItem> loaded) {
+        entries.clear();
+        entries.addAll(loaded);
+        for (VideoItem entry : entries) {
+            if (entry.isContainer()) containerNames.put(entry.getId(), entry.getName());
+        }
+        Collections.sort(entries, new Comparator<VideoItem>() {
+            @Override
+            public int compare(VideoItem left, VideoItem right) {
+                if (left.isContainer() != right.isContainer()) {
+                    return left.isContainer() ? -1 : 1;
+                }
+                return left.getName().compareToIgnoreCase(right.getName());
+            }
+        });
+        adapter.submit(entries);
+        updateHeader();
+        updateOptionValues();
+        libraryProgress.setVisibility(View.GONE);
+        searchButton.setVisibility(View.GONE);
+        if (entries.isEmpty()) {
+            videoGrid.setVisibility(View.GONE);
+            emptyState.setVisibility(View.VISIBLE);
+            emptyTitle.setText(R.string.empty_remote_folder);
+            emptyDescription.setText(R.string.privacy_note);
+            emptyDescription.setVisibility(View.VISIBLE);
+        } else {
+            emptyState.setVisibility(View.GONE);
+            videoGrid.setVisibility(View.VISIBLE);
+            videoGrid.post(() -> {
+                RecyclerView.ViewHolder holder =
+                        videoGrid.findViewHolderForAdapterPosition(0);
+                if (holder != null) holder.itemView.requestFocus();
+            });
+        }
+    }
+
+    private void openEntry(VideoItem entry) {
+        if (entry.isContainer()) {
+            browseContainer(entry.getId(), entry.getName());
+            return;
+        }
+        Intent intent = new Intent(this, PlayerActivity.class);
+        intent.putExtra(PlayerActivity.EXTRA_URI, entry.getUri().toString());
+        intent.putExtra(PlayerActivity.EXTRA_TITLE, entry.getName());
+        intent.putExtra(PlayerActivity.EXTRA_DURATION, entry.getDurationMs());
+        startActivity(intent);
+    }
+
+    private void navigateUp() {
+        if (currentServer == null || "0".equals(currentContainerId)) {
+            showExitDialog();
+            return;
+        }
+        String parent = currentParentId == null || currentParentId.isBlank()
+                ? "0"
+                : currentParentId;
+        String parentName = "0".equals(parent)
+                ? "Inicio"
+                : containerNames.get(parent);
+        browseContainer(parent, parentName == null ? "Carpeta" : parentName);
+    }
+
+    private void showLoading(int titleResource, int descriptionResource) {
         videoGrid.setVisibility(View.GONE);
         emptyState.setVisibility(View.VISIBLE);
-        emptyTitle.setText(R.string.empty_library_title);
-        emptyDescription.setText(R.string.empty_library_description);
+        emptyTitle.setText(titleResource);
+        emptyDescription.setText(descriptionResource);
+        emptyDescription.setVisibility(View.VISIBLE);
+        libraryProgress.setVisibility(View.VISIBLE);
+        searchButton.setVisibility(View.GONE);
+        entryCount.setText(getString(R.string.entry_count, 0));
+    }
+
+    private void showNoServers() {
+        currentServer = null;
+        entries.clear();
+        adapter.submit(entries);
+        folderLabel.setText(R.string.select_server);
+        entryCount.setText(getString(R.string.entry_count, 0));
+        videoGrid.setVisibility(View.GONE);
+        emptyState.setVisibility(View.VISIBLE);
+        emptyTitle.setText(R.string.no_servers);
+        emptyDescription.setText(R.string.no_servers_description);
         emptyDescription.setVisibility(View.VISIBLE);
         libraryProgress.setVisibility(View.GONE);
-        chooseFolderButton.setVisibility(View.VISIBLE);
-        chooseFolderButton.requestFocus();
+        searchButton.setVisibility(View.VISIBLE);
+        searchButton.requestFocus();
         updateOptionValues();
     }
 
-    private void showLibraryError() {
+    private void showBrowseError() {
         videoGrid.setVisibility(View.GONE);
         emptyState.setVisibility(View.VISIBLE);
-        emptyTitle.setText(R.string.library_error);
-        emptyDescription.setText(R.string.empty_library_description);
+        emptyTitle.setText(R.string.remote_folder_error);
+        emptyDescription.setText(R.string.no_servers_description);
         emptyDescription.setVisibility(View.VISIBLE);
         libraryProgress.setVisibility(View.GONE);
-        chooseFolderButton.setVisibility(View.VISIBLE);
-        chooseFolderButton.requestFocus();
+        searchButton.setVisibility(View.VISIBLE);
+        searchButton.requestFocus();
     }
 
-    private void openFolderPicker() {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
-                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
-                | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
-        startActivityForResult(intent, FOLDER_REQUEST);
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (appUpdater != null && appUpdater.onActivityResult(requestCode)) return;
-        if (requestCode != FOLDER_REQUEST || resultCode != RESULT_OK
-                || data == null || data.getData() == null) return;
-
-        Uri folderUri = data.getData();
-        try {
-            getContentResolver().takePersistableUriPermission(
-                    folderUri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-            );
-        } catch (SecurityException ignored) {
-            // El permiso temporal sigue siendo válido durante esta sesión.
+    private void updateHeader() {
+        if (currentServer == null) {
+            folderLabel.setText(R.string.select_server);
+        } else {
+            folderLabel.setText(getString(
+                    R.string.source_label,
+                    currentServer.getFriendlyName(),
+                    currentContainerName
+            ));
         }
-        DocumentFile folder = DocumentFile.fromTreeUri(this, folderUri);
-        String name = folder == null ? "Videos" : folder.getName();
-        preferences.setFolder(folderUri, name);
-        closeOptions();
-        scanLibrary(folderUri);
-    }
-
-    private void openVideo(VideoItem video) {
-        Intent intent = new Intent(this, PlayerActivity.class);
-        intent.putExtra(PlayerActivity.EXTRA_URI, video.getUri().toString());
-        intent.putExtra(PlayerActivity.EXTRA_TITLE, video.getName());
-        intent.putExtra(PlayerActivity.EXTRA_DURATION, video.getDurationMs());
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        startActivity(intent);
+        entryCount.setText(getString(R.string.entry_count, entries.size()));
     }
 
     private void showOptions() {
         updateOptionValues();
         optionsScrim.setVisibility(View.VISIBLE);
         optionsPanel.setVisibility(View.VISIBLE);
-        folderOption.requestFocus();
+        serverOption.requestFocus();
     }
 
     private void closeOptions() {
         if (optionsPanel.getVisibility() != View.VISIBLE) return;
         optionsPanel.setVisibility(View.GONE);
         optionsScrim.setVisibility(View.GONE);
-        if (!videos.isEmpty()) {
-            videoGrid.requestFocus();
-        } else {
-            chooseFolderButton.requestFocus();
-        }
+        if (!entries.isEmpty()) videoGrid.requestFocus();
+        else searchButton.requestFocus();
         enterImmersiveMode();
     }
 
     private void updateOptionValues() {
-        Uri folderUri = preferences.getFolderUri();
-        folderValue.setText(folderUri == null
-                ? getString(R.string.select)
-                : preferences.getFolderName());
-        sortValue.setText(LibraryPreferences.SORT_DATE.equals(preferences.getSortMode())
-                ? R.string.sort_date
-                : R.string.sort_name);
+        String serverName = currentServer == null
+                ? preferences.getServerName()
+                : currentServer.getFriendlyName();
+        serverValue.setText(serverName == null || serverName.isBlank()
+                ? getString(R.string.select_server)
+                : serverName);
+        folderValue.setText(currentContainerName == null
+                ? preferences.getContainerName()
+                : currentContainerName);
     }
 
     @Override
@@ -332,8 +481,13 @@ public final class MainActivity extends Activity {
     }
 
     private void handleBackAction() {
-        if (optionsPanel.getVisibility() == View.VISIBLE) closeOptions();
-        else showExitDialog();
+        if (optionsPanel.getVisibility() == View.VISIBLE) {
+            closeOptions();
+        } else if (serverDialog != null && serverDialog.isShowing()) {
+            serverDialog.dismiss();
+        } else {
+            navigateUp();
+        }
     }
 
     private void showExitDialog() {
@@ -365,6 +519,12 @@ public final class MainActivity extends Activity {
             window.setAttributes(attributes);
         }
         dialog.show();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (appUpdater != null) appUpdater.onActivityResult(requestCode);
     }
 
     @Override
@@ -413,12 +573,14 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        scanGeneration++;
+        discoveryGeneration++;
+        browseGeneration++;
         mainHandler.removeCallbacksAndMessages(null);
+        if (serverDialog != null) serverDialog.dismiss();
         if (exitDialog != null) exitDialog.dismiss();
         if (appUpdater != null) appUpdater.destroy();
         thumbnailRepository.destroy();
-        libraryExecutor.shutdownNow();
+        dlnaExecutor.shutdownNow();
         updateExecutor.shutdownNow();
         super.onDestroy();
     }
