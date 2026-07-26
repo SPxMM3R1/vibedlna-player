@@ -27,9 +27,6 @@
     <string name="exit_dialog_title">¿Salir de VibeDLNA Player?</string>
     <string name="stay_watching">Seguir explorando</string>
     <string name="exit">Salir</string>
-    <string name="unknown_duration">--:--</string>
-    <string name="player_hint">OK  Información     Atrás  Biblioteca</string>
-    <string name="remote_video_label">VIDEO DLNA</string>
     <string name="remote_folder">CARPETA DLNA</string>
     <string name="update_title">Actualización disponible</string>
     <string name="update_available">VibeDLNA Player %1$s está lista para instalar.</string>
