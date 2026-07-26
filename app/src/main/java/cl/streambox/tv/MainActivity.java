@@ -94,7 +94,7 @@ public final class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
         preferences = new LibraryPreferences(this);
         discovery = new DlnaDiscovery(this);
-        contentRepository = new DlnaContentRepository();
+        contentRepository = new DlnaContentRepository(discovery);
         thumbnailRepository = new ThumbnailRepository(this, mainHandler);
         bindViews();
         configureGrid();
@@ -164,7 +164,7 @@ public final class MainActivity extends Activity {
                 R.string.searching_servers_description
         );
         dlnaExecutor.submit(() -> {
-            List<DlnaServer> found = discovery.discover(4_000L);
+            List<DlnaServer> found = discovery.discover(5_000L);
             mainHandler.post(() -> {
                 if (generation != discoveryGeneration || isFinishing()) return;
                 availableServers.clear();
@@ -580,6 +580,7 @@ public final class MainActivity extends Activity {
         if (exitDialog != null) exitDialog.dismiss();
         if (appUpdater != null) appUpdater.destroy();
         thumbnailRepository.destroy();
+        discovery.close();
         dlnaExecutor.shutdownNow();
         updateExecutor.shutdownNow();
         super.onDestroy();

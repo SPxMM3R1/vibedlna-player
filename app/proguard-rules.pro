@@ -1,2 +1,4 @@
 -keepattributes *Annotation*
 -dontwarn org.checkerframework.**
+-dontwarn org.osgi.framework.**
+-dontwarn org.osgi.service.**

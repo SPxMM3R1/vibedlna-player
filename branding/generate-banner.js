@@ -14,7 +14,7 @@ async function main() {
 
     const font = fs.readFileSync(fontPath).toString("base64");
     const preservedOriginal = await sharp(original)
-        .extract({left: 0, top: 0, width: 200, height: 180})
+        .extract({left: 11, top: 0, width: 191, height: 180})
         .png()
         .toBuffer();
     const lettering = Buffer.from(`
@@ -25,14 +25,9 @@ async function main() {
               src: url(data:font/ttf;base64,${font});
             }
           </style>
-          <text x="196" y="111" font-family="Fredoka" font-size="42"
-                font-weight="690" letter-spacing="-1.7" fill="#00d8ed"
-                stroke="#ffffff" stroke-width="4.2" stroke-linejoin="round"
-                paint-order="stroke">DLNA</text>
-          <text x="196" y="111" font-family="Fredoka" font-size="42"
-                font-weight="690" letter-spacing="-1.7" fill="#00d8ed"
-                stroke="#050708" stroke-width="2.2" stroke-linejoin="round"
-                paint-order="stroke">DLNA</text>
+          <text x="192" y="107" font-family="Fredoka" font-size="44"
+                font-weight="500" letter-spacing="-1"
+                fill="#02c8fd">DLNA</text>
         </svg>
     `);
 
