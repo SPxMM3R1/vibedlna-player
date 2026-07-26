@@ -1,22 +1,18 @@
 package cl.streambox.tv;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.app.ActivityManager;
 import android.app.Dialog;
-import android.graphics.Color;
-import android.graphics.drawable.ColorDrawable;
 import android.content.Intent;
-import android.content.SharedPreferences;
-import android.net.ConnectivityManager;
-import android.net.Network;
-import android.net.NetworkCapabilities;
+import android.content.res.Configuration;
+import android.graphics.Color;
+import android.graphics.Rect;
+import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
-import android.os.Bundle;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.TypedValue;
-import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.Window;
@@ -24,99 +20,61 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.widget.Button;
-import android.widget.ImageView;
-import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.window.OnBackInvokedDispatcher;
 
-import androidx.media3.common.C;
-import androidx.media3.common.Format;
-import androidx.media3.common.MediaItem;
-import androidx.media3.common.MimeTypes;
-import androidx.media3.common.PlaybackException;
-import androidx.media3.common.Player;
-import androidx.media3.common.TrackSelectionOverride;
-import androidx.media3.common.Tracks;
-import androidx.media3.common.VideoSize;
-import androidx.media3.common.util.UnstableApi;
-import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.ui.PlayerView;
+import androidx.annotation.NonNull;
+import androidx.documentfile.provider.DocumentFile;
+import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
-import java.net.URI;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-@UnstableApi
 public final class MainActivity extends Activity {
-    private static final int SETTINGS_REQUEST = 1001;
-    private static final long OVERLAY_TIMEOUT_MS = 4_500;
-    private static final long PLAYER_RETRY_DELAY_MS = 2_500;
-    private static final long UPDATE_CHECK_DELAY_MS = 4_000;
+    private static final int FOLDER_REQUEST = 1001;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private final ExecutorService networkExecutor = Executors.newFixedThreadPool(2);
-    private final PlaylistRepository repository = new PlaylistRepository();
-    private final EpgRepository epgRepository = new EpgRepository();
-    private final List<Channel> channels = new ArrayList<>();
+    private final ExecutorService libraryExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService updateExecutor = Executors.newSingleThreadExecutor();
+    private final List<VideoItem> videos = new ArrayList<>();
 
-    private PlayerView playerView;
-    private View channelOverlay;
-    private View loadingPanel;
-    private ProgressBar loadingProgress;
-    private TextView loadingText;
+    private RecyclerView videoGrid;
+    private View emptyState;
+    private TextView emptyTitle;
+    private TextView emptyDescription;
+    private ProgressBar libraryProgress;
+    private Button chooseFolderButton;
+    private TextView folderLabel;
+    private TextView videoCount;
     private TextView clock;
-    private ImageView channelLogo;
-    private TextView channelLogoFallback;
-    private TextView channelNumber;
-    private TextView channelName;
-    private TextView contentTitle;
-    private TextView programmeTime;
-    private ProgressBar liveProgress;
-    private TextView videoInfo;
-    private TextView codecInfo;
-    private TextView statusDot;
-    private TextView streamStatus;
+    private View optionsScrim;
+    private View optionsPanel;
+    private Button folderOption;
+    private Button rescanOption;
+    private Button sortOption;
+    private TextView folderValue;
+    private TextView sortValue;
 
-    private ExoPlayer player;
+    private LibraryPreferences preferences;
+    private VideoLibraryRepository libraryRepository;
+    private ThumbnailRepository thumbnailRepository;
+    private VideoAdapter adapter;
     private AppUpdater appUpdater;
-    private PlaybackPreferences playbackPreferences;
-    private ChannelLogoCache channelLogoCache;
-    private EpgData epgData = EpgData.empty();
-    private int channelIndex;
-    private boolean loadFailed;
-    private boolean settingsOpen;
-    private boolean refreshAfterSettings;
-    private boolean overlayAwaitingPlayback;
-    private boolean exiting;
     private Dialog exitDialog;
-    private Dialog qualityDialog;
-    private String qualityPreferenceAppliedFor;
-    private int playlistGeneration;
+    private int scanGeneration;
 
-    private final Runnable hideOverlay = () -> {
-        channelOverlay.setVisibility(View.GONE);
-        clock.setVisibility(View.GONE);
-    };
     private final Runnable updateClock = new Runnable() {
-        @Override public void run() {
+        @Override
+        public void run() {
             clock.setText(new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date()));
-            mainHandler.postDelayed(this, 30_000);
-        }
-    };
-    private final Runnable updateProgramme = new Runnable() {
-        @Override public void run() {
-            updateProgrammeInfo();
-            if (!exiting && !isFinishing()) {
-                mainHandler.postDelayed(this, 30_000);
-            }
+            mainHandler.postDelayed(this, 30_000L);
         }
     };
 
@@ -124,341 +82,278 @@ public final class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        channelLogoCache = new ChannelLogoCache(this);
-        playbackPreferences = new PlaybackPreferences(this);
+        preferences = new LibraryPreferences(this);
+        libraryRepository = new VideoLibraryRepository(this);
+        thumbnailRepository = new ThumbnailRepository(this, mainHandler);
         bindViews();
+        configureGrid();
+        configureActions();
         registerBackCallback();
         enterImmersiveMode();
-        createPlayer();
-        appUpdater = new AppUpdater(this, networkExecutor, mainHandler);
-        mainHandler.postDelayed(appUpdater::checkForUpdates, UPDATE_CHECK_DELAY_MS);
+
+        appUpdater = new AppUpdater(this, updateExecutor, mainHandler);
+        appUpdater.checkForUpdates();
         updateClock.run();
+
+        Uri folderUri = preferences.getFolderUri();
+        if (folderUri == null) {
+            showFolderPrompt();
+        } else {
+            scanLibrary(folderUri);
+        }
     }
 
     private void bindViews() {
-        playerView = findViewById(R.id.player_view);
-        channelOverlay = findViewById(R.id.channel_overlay);
-        loadingPanel = findViewById(R.id.loading_panel);
-        loadingProgress = findViewById(R.id.loading_progress);
-        loadingText = findViewById(R.id.loading_text);
+        videoGrid = findViewById(R.id.video_grid);
+        emptyState = findViewById(R.id.empty_state);
+        emptyTitle = findViewById(R.id.empty_title);
+        emptyDescription = findViewById(R.id.empty_description);
+        libraryProgress = findViewById(R.id.library_progress);
+        chooseFolderButton = findViewById(R.id.choose_folder_button);
+        folderLabel = findViewById(R.id.folder_label);
+        videoCount = findViewById(R.id.video_count);
         clock = findViewById(R.id.clock);
-        channelLogo = findViewById(R.id.channel_logo);
-        channelLogoFallback = findViewById(R.id.channel_logo_fallback);
-        channelNumber = findViewById(R.id.channel_number);
-        channelName = findViewById(R.id.channel_name);
-        contentTitle = findViewById(R.id.content_title);
-        programmeTime = findViewById(R.id.programme_time);
-        liveProgress = findViewById(R.id.live_progress);
-        videoInfo = findViewById(R.id.video_info);
-        codecInfo = findViewById(R.id.codec_info);
-        statusDot = findViewById(R.id.status_dot);
-        streamStatus = findViewById(R.id.stream_status);
+        optionsScrim = findViewById(R.id.options_scrim);
+        optionsPanel = findViewById(R.id.options_panel);
+        folderOption = findViewById(R.id.folder_option);
+        rescanOption = findViewById(R.id.rescan_option);
+        sortOption = findViewById(R.id.sort_option);
+        folderValue = findViewById(R.id.folder_value);
+        sortValue = findViewById(R.id.sort_value);
     }
 
-    private void createPlayer() {
-        player = new ExoPlayer.Builder(this).build();
-        playerView.setPlayer(player);
-        player.addListener(new Player.Listener() {
-            @Override public void onPlaybackStateChanged(int playbackState) {
-                updateStreamStatus(playbackState);
-                updateDiagnostics();
-            }
-
-            @Override public void onVideoSizeChanged(VideoSize videoSize) {
-                updateDiagnostics();
-            }
-
-            @Override public void onTracksChanged(androidx.media3.common.Tracks tracks) {
-                updateDiagnostics();
-                applySavedQualityPreference(tracks);
-            }
-
-            @Override public void onPlayerError(PlaybackException error) {
-                setStatus("ERROR", R.color.red);
-                codecInfo.setText(shortMessage(error));
-                overlayAwaitingPlayback = true;
-                showOverlay(true);
-                mainHandler.postDelayed(() -> {
-                    if (player != null && player.getPlayerError() != null) {
-                        player.prepare();
-                        player.play();
-                    }
-                }, PLAYER_RETRY_DELAY_MS);
+    private void configureGrid() {
+        adapter = new VideoAdapter(thumbnailRepository, this::openVideo);
+        videoGrid.setLayoutManager(new GridLayoutManager(this, 4));
+        videoGrid.setAdapter(adapter);
+        videoGrid.addItemDecoration(new RecyclerView.ItemDecoration() {
+            @Override
+            public void getItemOffsets(
+                    @NonNull Rect outRect,
+                    @NonNull View view,
+                    @NonNull RecyclerView parent,
+                    @NonNull RecyclerView.State state
+            ) {
+                int spacing = dp(7);
+                outRect.set(spacing, spacing, spacing, spacing);
             }
         });
     }
 
-    private void refreshPlaylist(String url) {
-        int generation = ++playlistGeneration;
-        loadFailed = false;
-        loadingPanel.setVisibility(View.VISIBLE);
-        loadingProgress.setVisibility(View.VISIBLE);
-        loadingText.setText(R.string.loading_playlist);
-        epgData = EpgData.empty();
-        mainHandler.removeCallbacks(updateProgramme);
-        hideOverlay.run();
-
-        if (!isNetworkAvailable()) {
-            showPlaylistError("No hay conexión a Internet.");
-            return;
-        }
-
-        networkExecutor.submit(() -> {
-            try {
-                Playlist downloaded = repository.download(url);
-                mainHandler.post(() -> {
-                    if (generation != playlistGeneration || isFinishing()) return;
-                    channels.clear();
-                    channels.addAll(downloaded.getChannels());
-                    channelIndex = playbackPreferences.findInitialChannelIndex(channels);
-                    loadingPanel.setVisibility(View.GONE);
-                    playChannel(channelIndex);
-                });
-
-                if (downloaded.getEpgUri() != null) {
-                    try {
-                        EpgData downloadedEpg = epgRepository.download(downloaded.getEpgUri());
-                        mainHandler.post(() -> {
-                            if (generation != playlistGeneration || isFinishing()) return;
-                            epgData = downloadedEpg;
-                            mainHandler.removeCallbacks(updateProgramme);
-                            updateProgramme.run();
-                        });
-                    } catch (Exception ignored) {
-                        // La reproducción continúa usando el grupo del canal como respaldo.
-                    }
-                }
-            } catch (Exception error) {
-                mainHandler.post(() -> {
-                    if (generation != playlistGeneration || isFinishing()) return;
-                    showPlaylistError(shortMessage(error));
-                });
-            }
+    private void configureActions() {
+        chooseFolderButton.setOnClickListener(view -> openFolderPicker());
+        folderOption.setOnClickListener(view -> openFolderPicker());
+        rescanOption.setOnClickListener(view -> {
+            closeOptions();
+            Uri folderUri = preferences.getFolderUri();
+            if (folderUri == null) openFolderPicker();
+            else scanLibrary(folderUri);
+        });
+        sortOption.setOnClickListener(view -> {
+            preferences.toggleSortMode();
+            updateOptionValues();
+            closeOptions();
+            Uri folderUri = preferences.getFolderUri();
+            if (folderUri != null) scanLibrary(folderUri);
         });
     }
 
-    private void showPlaylistError(String detail) {
-        loadFailed = true;
-        loadingPanel.setVisibility(View.VISIBLE);
-        loadingProgress.setVisibility(View.GONE);
-        String message = getString(R.string.playlist_error);
-        if (detail != null && !detail.isBlank()) {
-            message += "\n\n" + detail;
-        }
-        loadingText.setText(message);
-    }
+    private void scanLibrary(Uri folderUri) {
+        int generation = ++scanGeneration;
+        emptyState.setVisibility(View.VISIBLE);
+        emptyTitle.setText(R.string.loading_library);
+        emptyDescription.setVisibility(View.GONE);
+        libraryProgress.setVisibility(View.VISIBLE);
+        chooseFolderButton.setVisibility(View.GONE);
+        videoGrid.setVisibility(View.GONE);
+        folderLabel.setText(getString(R.string.folder_label, preferences.getFolderName()));
+        videoCount.setText(getString(R.string.video_count, 0));
 
-    private void playChannel(int requestedIndex) {
-        if (channels.isEmpty()) return;
-        channelIndex = (requestedIndex % channels.size() + channels.size()) % channels.size();
-        Channel channel = channels.get(channelIndex);
-        String channelIdentity = PlaybackPreferences.channelIdentity(channel);
-        qualityPreferenceAppliedFor = null;
-
-        player.setTrackSelectionParameters(player.getTrackSelectionParameters()
-                .buildUpon()
-                .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
-                .build());
-        player.setMediaItem(new MediaItem.Builder()
-                .setUri(Uri.parse(channel.getStreamUri().toString()))
-                .setMediaId(channelIdentity)
-                .build());
-        player.prepare();
-        player.play();
-        playbackPreferences.rememberChannel(channel, channelIndex);
-
-        channelNumber.setText(String.format(Locale.ROOT, "%03d", channelIndex + 1));
-        channelName.setText(channel.getName());
-        updateProgrammeInfo();
-        videoInfo.setText("Resolución pendiente");
-        codecInfo.setText("Analizando stream…");
-        setStatus("CARGANDO", R.color.amber);
-        loadChannelLogo(channel);
-        showOverlayForChannelStart();
-    }
-
-    private void updateProgrammeInfo() {
-        if (channels.isEmpty() || channelIndex < 0 || channelIndex >= channels.size()) return;
-        Channel channel = channels.get(channelIndex);
-        long now = System.currentTimeMillis();
-        EpgProgramme programme = epgData.findCurrent(channel.getTvgId(), now);
-
-        if (programme == null) {
-            contentTitle.setText(channel.getGroup().isBlank()
-                    ? getString(R.string.live_content)
-                    : channel.getGroup());
-            programmeTime.setVisibility(View.GONE);
-            liveProgress.setIndeterminate(true);
-            return;
-        }
-
-        contentTitle.setText(programme.getTitle());
-        SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm", Locale.getDefault());
-        String timeRange = timeFormat.format(new Date(programme.getStartMillis()))
-                + " — "
-                + timeFormat.format(new Date(programme.getStopMillis()));
-        programmeTime.setText(timeRange);
-        programmeTime.setVisibility(View.VISIBLE);
-
-        long duration = programme.getStopMillis() - programme.getStartMillis();
-        int progress = duration <= 0 ? 0 : (int) Math.max(0, Math.min(1000,
-                ((now - programme.getStartMillis()) * 1000L) / duration));
-        liveProgress.setIndeterminate(false);
-        liveProgress.setMax(1000);
-        liveProgress.setProgress(progress);
-    }
-
-    private void loadChannelLogo(Channel channel) {
-        URI logoUri = channel.getLogoUri();
-        String fallback = initials(channel.getName());
-        channelLogo.setImageDrawable(null);
-        channelLogo.setVisibility(View.GONE);
-        channelLogoFallback.setText(fallback);
-        channelLogoFallback.setVisibility(View.VISIBLE);
-        if (logoUri == null || !("http".equalsIgnoreCase(logoUri.getScheme()) || "https".equalsIgnoreCase(logoUri.getScheme()))) {
-            return;
-        }
-
-        int expectedIndex = channelIndex;
-        networkExecutor.submit(() -> {
+        libraryExecutor.submit(() -> {
+            List<VideoItem> found;
             try {
-                android.graphics.Bitmap bitmap = channelLogoCache.load(logoUri);
-                mainHandler.post(() -> {
-                    if (expectedIndex != channelIndex || isFinishing()) return;
-                    channelLogo.setImageBitmap(bitmap);
-                    channelLogo.setVisibility(View.VISIBLE);
-                    channelLogoFallback.setVisibility(View.GONE);
-                });
+                found = libraryRepository.scan(folderUri, preferences.getSortMode());
             } catch (Exception ignored) {
-                // El monograma del canal permanece visible como respaldo.
+                found = null;
             }
-        });
-    }
-
-    private void updateStreamStatus(int state) {
-        if (state == Player.STATE_READY) {
-            setStatus("ESTABLE", R.color.green);
-            if (overlayAwaitingPlayback) {
-                overlayAwaitingPlayback = false;
-                showOverlay(false);
-            }
-        } else if (state == Player.STATE_BUFFERING) {
-            setStatus("CARGANDO", R.color.amber);
-        } else if (state == Player.STATE_ENDED) {
-            setStatus("FINALIZADO", R.color.muted);
-        }
-    }
-
-    private void updateDiagnostics() {
-        if (player == null) return;
-        Format video = player.getVideoFormat();
-        Format audio = player.getAudioFormat();
-
-        if (video != null) {
-            String resolution = video.width > 0 && video.height > 0
-                    ? video.width + " × " + video.height
-                    : "Resolución desconocida";
-            String fps = video.frameRate > 0 ? " · " + trimDecimal(video.frameRate) + " FPS" : "";
-            videoInfo.setText(resolution + fps);
-        }
-
-        String videoCodec = codecName(video == null ? null : video.sampleMimeType);
-        String audioCodec = codecName(audio == null ? null : audio.sampleMimeType);
-        int bitrate = video != null && video.averageBitrate > 0 ? video.averageBitrate :
-                (video != null ? video.peakBitrate : Format.NO_VALUE);
-        String bitrateText = bitrate > 0
-                ? String.format(Locale.ROOT, " · %.1f Mbps", bitrate / 1_000_000f)
-                : "";
-        codecInfo.setText(videoCodec + " · " + audioCodec + bitrateText);
-    }
-
-    private void applySavedQualityPreference(Tracks tracks) {
-        if (player == null || channels.isEmpty()
-                || channelIndex < 0 || channelIndex >= channels.size()) return;
-        Channel channel = channels.get(channelIndex);
-        String channelIdentity = PlaybackPreferences.channelIdentity(channel);
-        MediaItem mediaItem = player.getCurrentMediaItem();
-        if (mediaItem == null || !channelIdentity.equals(mediaItem.mediaId)
-                || channelIdentity.equals(qualityPreferenceAppliedFor)) return;
-
-        PlaybackPreferences.QualityPreference preference =
-                playbackPreferences.getQuality(channel);
-        if (preference == null) {
-            qualityPreferenceAppliedFor = channelIdentity;
-            return;
-        }
-
-        VideoTrackOption option = findClosestQuality(
-                collectVideoTrackOptions(tracks),
-                preference
-        );
-        if (option != null) applyFixedQuality(channel, option, false);
-    }
-
-    private void showStreamQualityDialog() {
-        if (player == null || channels.isEmpty()
-                || channelIndex < 0 || channelIndex >= channels.size()) return;
-        if (qualityDialog != null && qualityDialog.isShowing()) return;
-
-        Channel channel = channels.get(channelIndex);
-        List<VideoTrackOption> options =
-                collectVideoTrackOptions(player.getCurrentTracks());
-        PlaybackPreferences.QualityPreference preference =
-                playbackPreferences.getQuality(channel);
-        VideoTrackOption selectedOption = preference == null
-                ? null
-                : findClosestQuality(options, preference);
-
-        Dialog dialog = new Dialog(this);
-        qualityDialog = dialog;
-        dialog.setContentView(R.layout.dialog_stream_quality);
-        dialog.setCanceledOnTouchOutside(false);
-
-        TextView description = dialog.findViewById(
-                R.id.stream_quality_description
-        );
-        description.setText(getString(
-                options.size() <= 1
-                        ? R.string.stream_quality_unavailable
-                        : R.string.stream_quality_description,
-                channel.getName()
-        ));
-
-        LinearLayout container = dialog.findViewById(
-                R.id.stream_quality_options
-        );
-        Button automaticButton = createQualityButton(
-                (preference == null ? "\u2713 " : "")
-                        + getString(R.string.stream_quality_automatic)
-        );
-        automaticButton.setOnClickListener(view -> {
-            useAutomaticQuality(channel);
-            dialog.dismiss();
-        });
-        container.addView(automaticButton);
-
-        Button focusTarget = preference == null ? automaticButton : null;
-        for (VideoTrackOption option : options) {
-            boolean selected = option == selectedOption;
-            Button button = createQualityButton(
-                    (selected ? "\u2713 " : "") + option.label()
-            );
-            button.setOnClickListener(view -> {
-                applyFixedQuality(channel, option, true);
-                dialog.dismiss();
+            List<VideoItem> result = found;
+            mainHandler.post(() -> {
+                if (generation != scanGeneration || isFinishing()) return;
+                if (result == null) {
+                    showLibraryError();
+                    return;
+                }
+                videos.clear();
+                videos.addAll(result);
+                adapter.submit(videos);
+                videoCount.setText(getString(R.string.video_count, videos.size()));
+                if (videos.isEmpty()) {
+                    emptyState.setVisibility(View.VISIBLE);
+                    emptyTitle.setText(R.string.empty_library_title);
+                    emptyDescription.setText(R.string.library_error);
+                    emptyDescription.setVisibility(View.VISIBLE);
+                    libraryProgress.setVisibility(View.GONE);
+                    chooseFolderButton.setVisibility(View.VISIBLE);
+                    chooseFolderButton.requestFocus();
+                } else {
+                    emptyState.setVisibility(View.GONE);
+                    videoGrid.setVisibility(View.VISIBLE);
+                    videoGrid.post(() -> {
+                        RecyclerView.ViewHolder holder =
+                                videoGrid.findViewHolderForAdapterPosition(0);
+                        if (holder != null) holder.itemView.requestFocus();
+                    });
+                }
+                updateOptionValues();
             });
-            container.addView(button);
-            if (selected) focusTarget = button;
-        }
-        if (focusTarget == null) focusTarget = automaticButton;
-        Button initialFocus = focusTarget;
-
-        dialog.setOnShowListener(ignored -> initialFocus.requestFocus());
-        dialog.setOnDismissListener(ignored -> {
-            if (qualityDialog == dialog) qualityDialog = null;
-            if (!isFinishing() && !isDestroyed()) enterImmersiveMode();
         });
+    }
 
+    private void showFolderPrompt() {
+        folderLabel.setText(getString(R.string.folder_label, "Sin seleccionar"));
+        videoCount.setText(getString(R.string.video_count, 0));
+        videoGrid.setVisibility(View.GONE);
+        emptyState.setVisibility(View.VISIBLE);
+        emptyTitle.setText(R.string.empty_library_title);
+        emptyDescription.setText(R.string.empty_library_description);
+        emptyDescription.setVisibility(View.VISIBLE);
+        libraryProgress.setVisibility(View.GONE);
+        chooseFolderButton.setVisibility(View.VISIBLE);
+        chooseFolderButton.requestFocus();
+        updateOptionValues();
+    }
+
+    private void showLibraryError() {
+        videoGrid.setVisibility(View.GONE);
+        emptyState.setVisibility(View.VISIBLE);
+        emptyTitle.setText(R.string.library_error);
+        emptyDescription.setText(R.string.empty_library_description);
+        emptyDescription.setVisibility(View.VISIBLE);
+        libraryProgress.setVisibility(View.GONE);
+        chooseFolderButton.setVisibility(View.VISIBLE);
+        chooseFolderButton.requestFocus();
+    }
+
+    private void openFolderPicker() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        startActivityForResult(intent, FOLDER_REQUEST);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (appUpdater != null && appUpdater.onActivityResult(requestCode)) return;
+        if (requestCode != FOLDER_REQUEST || resultCode != RESULT_OK
+                || data == null || data.getData() == null) return;
+
+        Uri folderUri = data.getData();
+        try {
+            getContentResolver().takePersistableUriPermission(
+                    folderUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+            );
+        } catch (SecurityException ignored) {
+            // El permiso temporal sigue siendo válido durante esta sesión.
+        }
+        DocumentFile folder = DocumentFile.fromTreeUri(this, folderUri);
+        String name = folder == null ? "Videos" : folder.getName();
+        preferences.setFolder(folderUri, name);
+        closeOptions();
+        scanLibrary(folderUri);
+    }
+
+    private void openVideo(VideoItem video) {
+        Intent intent = new Intent(this, PlayerActivity.class);
+        intent.putExtra(PlayerActivity.EXTRA_URI, video.getUri().toString());
+        intent.putExtra(PlayerActivity.EXTRA_TITLE, video.getName());
+        intent.putExtra(PlayerActivity.EXTRA_DURATION, video.getDurationMs());
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        startActivity(intent);
+    }
+
+    private void showOptions() {
+        updateOptionValues();
+        optionsScrim.setVisibility(View.VISIBLE);
+        optionsPanel.setVisibility(View.VISIBLE);
+        folderOption.requestFocus();
+    }
+
+    private void closeOptions() {
+        if (optionsPanel.getVisibility() != View.VISIBLE) return;
+        optionsPanel.setVisibility(View.GONE);
+        optionsScrim.setVisibility(View.GONE);
+        if (!videos.isEmpty()) {
+            videoGrid.requestFocus();
+        } else {
+            chooseFolderButton.requestFocus();
+        }
+        enterImmersiveMode();
+    }
+
+    private void updateOptionValues() {
+        Uri folderUri = preferences.getFolderUri();
+        folderValue.setText(folderUri == null
+                ? getString(R.string.select)
+                : preferences.getFolderName());
+        sortValue.setText(LibraryPreferences.SORT_DATE.equals(preferences.getSortMode())
+                ? R.string.sort_date
+                : R.string.sort_name);
+    }
+
+    @Override
+    @SuppressLint("GestureBackNavigation")
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+            int keyCode = event.getKeyCode();
+            if (keyCode == KeyEvent.KEYCODE_BACK) {
+                handleBackAction();
+                return true;
+            }
+            if (optionsPanel.getVisibility() != View.VISIBLE
+                    && (keyCode == KeyEvent.KEYCODE_MENU
+                    || keyCode == KeyEvent.KEYCODE_SETTINGS)) {
+                showOptions();
+                return true;
+            }
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
+    private void registerBackCallback() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                    OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                    this::handleBackAction
+            );
+        }
+    }
+
+    private void handleBackAction() {
+        if (optionsPanel.getVisibility() == View.VISIBLE) closeOptions();
+        else showExitDialog();
+    }
+
+    private void showExitDialog() {
+        if (exitDialog != null && exitDialog.isShowing()) return;
+        Dialog dialog = new Dialog(this);
+        exitDialog = dialog;
+        dialog.setContentView(R.layout.dialog_exit);
+        dialog.setCanceledOnTouchOutside(false);
+        Button stayButton = dialog.findViewById(R.id.stay_button);
+        Button exitButton = dialog.findViewById(R.id.exit_button);
+        stayButton.setOnClickListener(view -> dialog.dismiss());
+        exitButton.setOnClickListener(view -> {
+            dialog.dismiss();
+            finishAndRemoveTask();
+        });
+        dialog.setOnShowListener(ignored -> exitButton.requestFocus());
+        dialog.setOnDismissListener(ignored -> {
+            if (exitDialog == dialog) exitDialog = null;
+            if (!isFinishing()) enterImmersiveMode();
+        });
         Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
@@ -472,416 +367,59 @@ public final class MainActivity extends Activity {
         dialog.show();
     }
 
-    private Button createQualityButton(String text) {
-        Button button = new Button(this);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(34)
-        );
-        params.bottomMargin = dp(6);
-        button.setLayoutParams(params);
-        button.setBackgroundResource(R.drawable.focus_button_compact);
-        button.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-        button.setIncludeFontPadding(false);
-        button.setMinHeight(0);
-        button.setMinWidth(0);
-        button.setPadding(dp(12), 0, dp(12), 0);
-        button.setText(text);
-        button.setTextColor(getColor(R.color.white));
-        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
-        button.setAllCaps(false);
-        return button;
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (appUpdater != null) appUpdater.onHostResume();
+        enterImmersiveMode();
     }
 
-    private void useAutomaticQuality(Channel channel) {
-        playbackPreferences.useAutomaticQuality(channel);
-        qualityPreferenceAppliedFor = PlaybackPreferences.channelIdentity(channel);
-        player.setTrackSelectionParameters(player.getTrackSelectionParameters()
-                .buildUpon()
-                .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
-                .build());
+    @Override
+    protected void onPause() {
+        if (appUpdater != null) appUpdater.onHostPause();
+        super.onPause();
     }
 
-    private void applyFixedQuality(
-            Channel channel,
-            VideoTrackOption option,
-            boolean remember
-    ) {
-        if (remember) {
-            playbackPreferences.rememberQuality(
-                    channel,
-                    option.bitrate,
-                    option.width,
-                    option.height
+    @Override
+    public void onConfigurationChanged(@NonNull Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        enterImmersiveMode();
+    }
+
+    private void enterImmersiveMode() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            WindowInsetsController controller = getWindow().getInsetsController();
+            if (controller != null) {
+                controller.hide(WindowInsets.Type.systemBars());
+                controller.setSystemBarsBehavior(
+                        WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                );
+            }
+        } else {
+            getWindow().getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
             );
         }
-        qualityPreferenceAppliedFor = PlaybackPreferences.channelIdentity(channel);
-        player.setTrackSelectionParameters(player.getTrackSelectionParameters()
-                .buildUpon()
-                .setOverrideForType(new TrackSelectionOverride(
-                        option.group.getMediaTrackGroup(),
-                        option.trackIndex
-                ))
-                .build());
-    }
-
-    private static List<VideoTrackOption> collectVideoTrackOptions(Tracks tracks) {
-        Tracks.Group selectedGroup = null;
-        Tracks.Group fallbackGroup = null;
-        for (Tracks.Group group : tracks.getGroups()) {
-            if (group.getType() != C.TRACK_TYPE_VIDEO || !group.isSupported()) continue;
-            if (fallbackGroup == null) fallbackGroup = group;
-            if (group.isSelected()) {
-                selectedGroup = group;
-                break;
-            }
-        }
-
-        Tracks.Group group = selectedGroup == null ? fallbackGroup : selectedGroup;
-        List<VideoTrackOption> result = new ArrayList<>();
-        if (group == null) return result;
-        for (int trackIndex = 0; trackIndex < group.length; trackIndex++) {
-            if (!group.isTrackSupported(trackIndex)) continue;
-            result.add(new VideoTrackOption(
-                    group,
-                    trackIndex,
-                    group.getTrackFormat(trackIndex)
-            ));
-        }
-        Collections.sort(result, new Comparator<VideoTrackOption>() {
-            @Override
-            public int compare(VideoTrackOption left, VideoTrackOption right) {
-                int bitrateOrder = Integer.compare(right.bitrate, left.bitrate);
-                return bitrateOrder != 0
-                        ? bitrateOrder
-                        : Integer.compare(right.height, left.height);
-            }
-        });
-        return result;
-    }
-
-    private static VideoTrackOption findClosestQuality(
-            List<VideoTrackOption> options,
-            PlaybackPreferences.QualityPreference preference
-    ) {
-        VideoTrackOption closest = null;
-        long closestScore = Long.MAX_VALUE;
-        for (VideoTrackOption option : options) {
-            long score;
-            if (preference.bitrate > 0 && option.bitrate > 0) {
-                score = Math.abs((long) preference.bitrate - option.bitrate) * 1_000L;
-                score += Math.abs(preference.height - option.height);
-            } else {
-                score = Math.abs((long) preference.height - option.height) * 1_000_000L;
-                score += Math.abs(preference.width - option.width);
-            }
-            if (score < closestScore) {
-                closest = option;
-                closestScore = score;
-            }
-        }
-        return closest;
     }
 
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
-    private void setStatus(String text, int colorResource) {
-        streamStatus.setText(text);
-        statusDot.setTextColor(getColor(colorResource));
-    }
-
-    private void showOverlay(boolean keepVisible) {
-        channelOverlay.setVisibility(View.VISIBLE);
-        clock.setVisibility(View.VISIBLE);
-        mainHandler.removeCallbacks(hideOverlay);
-        if (!keepVisible) {
-            mainHandler.postDelayed(hideOverlay, OVERLAY_TIMEOUT_MS);
-        }
-    }
-
-    private void showOverlayForChannelStart() {
-        overlayAwaitingPlayback = true;
-        showOverlay(true);
-    }
-
-    @Override
-    public boolean dispatchKeyEvent(KeyEvent event) {
-        if (event.getAction() == KeyEvent.ACTION_DOWN) {
-            int keyCode = event.getKeyCode();
-            if (keyCode == KeyEvent.KEYCODE_BACK && event.getRepeatCount() == 0) {
-                handleBackAction();
-                return true;
-            }
-            if (keyCode == KeyEvent.KEYCODE_MENU || keyCode == KeyEvent.KEYCODE_SETTINGS) {
-                openSettings();
-                return true;
-            }
-            if ((keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) && event.getRepeatCount() >= 1) {
-                openSettings();
-                return true;
-            }
-            if (event.getRepeatCount() == 0) {
-                if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_CHANNEL_UP) {
-                    playChannel(channelIndex + (isChannelNavigationInverted() ? 1 : -1));
-                    return true;
-                }
-                if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN || keyCode == KeyEvent.KEYCODE_CHANNEL_DOWN) {
-                    playChannel(channelIndex + (isChannelNavigationInverted() ? -1 : 1));
-                    return true;
-                }
-                if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                    showStreamQualityDialog();
-                    return true;
-                }
-                if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_INFO) {
-                    if (loadFailed) {
-                        refreshPlaylist(getPlaylistUrl());
-                    } else {
-                        showOverlay(false);
-                    }
-                    return true;
-                }
-            }
-        }
-        return super.dispatchKeyEvent(event);
-    }
-
-    private void registerBackCallback() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
-                    OnBackInvokedDispatcher.PRIORITY_DEFAULT,
-                    this::handleBackAction);
-        }
-    }
-
-    private void handleBackAction() {
-        if (channelOverlay.getVisibility() == View.VISIBLE
-                || clock.getVisibility() == View.VISIBLE) {
-            overlayAwaitingPlayback = false;
-            mainHandler.removeCallbacks(hideOverlay);
-            hideOverlay.run();
-            return;
-        }
-        showExitDialog();
-    }
-
-    private void showExitDialog() {
-        if (exiting || (exitDialog != null && exitDialog.isShowing())) return;
-
-        exitDialog = new Dialog(this);
-        exitDialog.setContentView(R.layout.dialog_exit);
-        exitDialog.setCanceledOnTouchOutside(false);
-
-        Button stayButton = exitDialog.findViewById(R.id.stay_button);
-        Button exitButton = exitDialog.findViewById(R.id.exit_button);
-        stayButton.setOnClickListener(view -> exitDialog.dismiss());
-        exitButton.setOnClickListener(view -> exitApplication());
-        exitDialog.setOnShowListener(dialog -> exitButton.requestFocus());
-        exitDialog.setOnDismissListener(dialog -> {
-            exitDialog = null;
-            if (!exiting) enterImmersiveMode();
-        });
-
-        Window window = exitDialog.getWindow();
-        if (window != null) {
-            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-            WindowManager.LayoutParams attributes = window.getAttributes();
-            attributes.width = WindowManager.LayoutParams.WRAP_CONTENT;
-            attributes.height = WindowManager.LayoutParams.WRAP_CONTENT;
-            attributes.dimAmount = 0.68f;
-            window.setAttributes(attributes);
-        }
-        exitDialog.show();
-    }
-
-    private void exitApplication() {
-        if (exiting) return;
-        exiting = true;
-        if (exitDialog != null) exitDialog.dismiss();
-        playlistGeneration++;
-        mainHandler.removeCallbacksAndMessages(null);
-        if (player != null) player.pause();
-
-        ActivityManager activityManager = getSystemService(ActivityManager.class);
-        if (activityManager == null || activityManager.getAppTasks().isEmpty()) {
-            finishAndRemoveTask();
-            return;
-        }
-        for (ActivityManager.AppTask task : activityManager.getAppTasks()) {
-            task.finishAndRemoveTask();
-        }
-    }
-
-    private void openSettings() {
-        if (settingsOpen) return;
-        settingsOpen = true;
-        startActivityForResult(new Intent(this, SettingsActivity.class), SETTINGS_REQUEST);
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (appUpdater != null && appUpdater.onActivityResult(requestCode)) return;
-        if (requestCode == SETTINGS_REQUEST) {
-            settingsOpen = false;
-            String url = getPlaylistUrl();
-            if (resultCode == RESULT_OK && !url.isBlank()) {
-                refreshAfterSettings = true;
-            } else if (url.isBlank()) {
-                openSettings();
-            }
-        }
-    }
-
-    private String getPlaylistUrl() {
-        SharedPreferences prefs = getSharedPreferences(SettingsActivity.PREFS, MODE_PRIVATE);
-        String url = prefs.getString(SettingsActivity.KEY_PLAYLIST_URL, "");
-        return url == null ? "" : url.trim();
-    }
-
-    private boolean isChannelNavigationInverted() {
-        return getSharedPreferences(SettingsActivity.PREFS, MODE_PRIVATE)
-                .getBoolean(SettingsActivity.KEY_INVERT_CHANNEL_KEYS, false);
-    }
-
-    private boolean isNetworkAvailable() {
-        ConnectivityManager manager = getSystemService(ConnectivityManager.class);
-        if (manager == null) return true;
-        Network network = manager.getActiveNetwork();
-        if (network == null) return false;
-        NetworkCapabilities capabilities = manager.getNetworkCapabilities(network);
-        return capabilities != null && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
-    }
-
-    private static String initials(String name) {
-        if (name == null || name.isBlank()) return "TV";
-        StringBuilder result = new StringBuilder(2);
-        for (String word : name.trim().split("\\s+")) {
-            if (!word.isEmpty()) result.append(Character.toUpperCase(word.charAt(0)));
-            if (result.length() == 2) break;
-        }
-        return result.length() == 0 ? "TV" : result.toString();
-    }
-
-    private static String codecName(String mimeType) {
-        if (mimeType == null) return "—";
-        return switch (mimeType) {
-            case MimeTypes.VIDEO_H264 -> "H.264";
-            case MimeTypes.VIDEO_H265 -> "H.265";
-            case MimeTypes.VIDEO_AV1 -> "AV1";
-            case MimeTypes.VIDEO_VP9 -> "VP9";
-            case MimeTypes.AUDIO_AAC -> "AAC";
-            case MimeTypes.AUDIO_AC3 -> "AC-3";
-            case MimeTypes.AUDIO_E_AC3 -> "E-AC-3";
-            case MimeTypes.AUDIO_OPUS -> "Opus";
-            default -> mimeType.substring(mimeType.lastIndexOf('/') + 1).toUpperCase(Locale.ROOT);
-        };
-    }
-
-    private static String trimDecimal(float value) {
-        return value == Math.round(value)
-                ? String.valueOf(Math.round(value))
-                : String.format(Locale.ROOT, "%.1f", value);
-    }
-
-    private static String shortMessage(Throwable error) {
-        String message = error == null ? null : error.getMessage();
-        return message == null || message.isBlank() ? "Error desconocido." : message;
-    }
-
-    private void enterImmersiveMode() {
-        if (android.os.Build.VERSION.SDK_INT >= 30) {
-            WindowInsetsController controller = getWindow().getInsetsController();
-            if (controller != null) {
-                controller.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
-                controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-            }
-        } else {
-            getWindow().getDecorView().setSystemUiVisibility(
-                    View.SYSTEM_UI_FLAG_FULLSCREEN |
-                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
-                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
-        }
-    }
-
-    @Override
-    protected void onStart() {
-        super.onStart();
-        if (!settingsOpen && !refreshAfterSettings) {
-            String url = getPlaylistUrl();
-            if (url.isBlank()) {
-                openSettings();
-            } else {
-                refreshPlaylist(url);
-            }
-        }
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        enterImmersiveMode();
-        if (appUpdater != null) appUpdater.onHostResume();
-        if (refreshAfterSettings) {
-            refreshAfterSettings = false;
-            refreshPlaylist(getPlaylistUrl());
-        }
-        if (player != null) player.play();
-    }
-
-    @Override
-    protected void onPause() {
-        if (appUpdater != null) appUpdater.onHostPause();
-        if (player != null) player.pause();
-        super.onPause();
-    }
-
     @Override
     protected void onDestroy() {
-        playlistGeneration++;
+        scanGeneration++;
         mainHandler.removeCallbacksAndMessages(null);
-        if (qualityDialog != null) qualityDialog.dismiss();
+        if (exitDialog != null) exitDialog.dismiss();
         if (appUpdater != null) appUpdater.destroy();
-        networkExecutor.shutdownNow();
-        if (player != null) {
-            player.release();
-            player = null;
-        }
+        thumbnailRepository.destroy();
+        libraryExecutor.shutdownNow();
+        updateExecutor.shutdownNow();
         super.onDestroy();
-    }
-
-    private static final class VideoTrackOption {
-        final Tracks.Group group;
-        final int trackIndex;
-        final int bitrate;
-        final int width;
-        final int height;
-
-        VideoTrackOption(Tracks.Group group, int trackIndex, Format format) {
-            this.group = group;
-            this.trackIndex = trackIndex;
-            this.bitrate = format.averageBitrate > 0
-                    ? format.averageBitrate
-                    : Math.max(format.peakBitrate, 0);
-            this.width = Math.max(format.width, 0);
-            this.height = Math.max(format.height, 0);
-        }
-
-        String label() {
-            List<String> parts = new ArrayList<>();
-            if (height > 0) parts.add(height + "p");
-            if (bitrate > 0) {
-                parts.add(String.format(
-                        Locale.ROOT,
-                        "%.1f Mbps",
-                        bitrate / 1_000_000f
-                ));
-            }
-            if (parts.isEmpty()) return "Pista " + (trackIndex + 1);
-            return parts.size() == 1 ? parts.get(0) : parts.get(0) + " · " + parts.get(1);
-        }
     }
 }

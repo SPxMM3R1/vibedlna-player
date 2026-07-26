@@ -17,9 +17,9 @@ import java.util.Locale;
 
 final class UpdateRepository {
     private static final URI LATEST_RELEASE_URI =
-            URI.create("https://api.github.com/repos/SPxMM3R1/vibem3u/releases/latest");
+            URI.create("https://api.github.com/repos/SPxMM3R1/vibedlna-player/releases/latest");
     private static final String RELEASE_PATH_PREFIX =
-            "/SPxMM3R1/vibem3u/releases/download/";
+            "/SPxMM3R1/vibedlna-player/releases/download/";
     private static final int CONNECT_TIMEOUT_MS = 10_000;
     private static final int READ_TIMEOUT_MS = 30_000;
     private static final int MAX_JSON_BYTES = 1_000_000;
@@ -56,7 +56,7 @@ final class UpdateRepository {
             return null;
         }
 
-        String expectedAssetName = "VibeM3U-" + tagName + ".apk";
+        String expectedAssetName = "VibeDLNA-" + tagName + ".apk";
         JSONArray assets = release.optJSONArray("assets");
         if (assets == null) throw new IOException("La versión no contiene un APK.");
 
@@ -84,8 +84,8 @@ final class UpdateRepository {
             throw new IOException("No se pudo crear la carpeta de actualización.");
         }
 
-        File partial = new File(updateDirectory, "VibeM3U-update.apk.part");
-        File completed = new File(updateDirectory, "VibeM3U-update.apk");
+        File partial = new File(updateDirectory, "VibeDLNA-update.apk.part");
+        File completed = new File(updateDirectory, "VibeDLNA-update.apk");
         if (partial.exists() && !partial.delete()) {
             throw new IOException("No se pudo limpiar la descarga anterior.");
         }
@@ -215,7 +215,7 @@ final class UpdateRepository {
         HttpURLConnection connection = (HttpURLConnection) uri.toURL().openConnection();
         connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
         connection.setReadTimeout(READ_TIMEOUT_MS);
-        connection.setRequestProperty("User-Agent", "VibeM3U-Android-TV");
+        connection.setRequestProperty("User-Agent", "VibeDLNA-Android-TV");
         return connection;
     }
 

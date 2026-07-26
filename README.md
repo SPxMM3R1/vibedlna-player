@@ -1,53 +1,30 @@
-# VibeM3U
+# VibeDLNA Player
 
-[![Android CI](https://github.com/SPxMM3R1/vibem3u/actions/workflows/android-ci.yml/badge.svg)](https://github.com/SPxMM3R1/vibem3u/actions/workflows/android-ci.yml)
+[![Android CI](https://github.com/SPxMM3R1/vibedlna-player/actions/workflows/android-ci.yml/badge.svg)](https://github.com/SPxMM3R1/vibedlna-player/actions/workflows/android-ci.yml)
 
-Reproductor M3U para Android TV inspirado en la experiencia de un set-top box:
-abre directamente la señal, descarga la lista nuevamente en cada inicio y muestra
-una barra compacta al cambiar de canal.
+Reproductor de carpetas de video para Android TV con la interfaz compacta de
+VibeM3U.
 
-La versión 0.4.0 recuerda el último canal, permite fijar una variante de video por
-canal y usa `Atrás` para ocultar primero la información visible. También conserva
-la actualización desde GitHub introducida en 0.3.0.
+## Funcionamiento
 
-## Descargar
-
-- [Descargar la versión más reciente](https://github.com/SPxMM3R1/vibem3u/releases/latest)
-- [Ver todas las versiones](https://github.com/SPxMM3R1/vibem3u/releases)
-
-## Actualizaciones en Android TV
-
-Al abrir VibeM3U, la app consulta la última Release pública de GitHub. Si encuentra
-una versión superior:
-
-1. Muestra un aviso con **Actualizar** seleccionado.
-2. Descarga el APK en el almacenamiento privado de la app.
-3. Comprueba el nombre del paquete, el número de versión y el certificado.
-4. Solicita, si hace falta, permiso para instalar desde VibeM3U.
-5. Abre el instalador de Android para que el usuario confirme la actualización.
-
-Android no permite a una app normal completar silenciosamente el último paso. La
-versión 0.3.0 debe instalarse una vez mediante Downloader; las versiones posteriores
-ya podrán anunciarse y descargarse desde la propia app.
+- Selecciona una carpeta mediante el selector seguro de Android.
+- Conserva únicamente el permiso y el nombre de esa carpeta.
+- Examina la carpeta y sus subcarpetas automáticamente al abrir la app.
+- Genera y guarda en caché una miniatura del fotograma situado al 50% de cada video.
+- Reproduce siempre desde el comienzo.
+- No guarda posición, progreso, historial, vistos ni último video seleccionado.
 
 ## Controles
 
-- `↑` / `↓`: canal anterior o siguiente; el sentido puede invertirse en Configuración.
-- `→`: elegir `Automático` o fijar una resolución/bitrate para el canal actual.
-- `OK`: mostrar la información del canal.
-- Mantener `OK`, botón `Menú` o botón `Configuración`: editar la URL M3U.
-- `Atrás`: ocultar la información si está visible; si ya está oculta, confirmar salida.
+- Flechas y `OK`: recorrer y abrir videos.
+- `Menú` o `Configuración`: abrir las opciones.
+- `Atrás`: cerrar opciones, volver a la biblioteca o confirmar la salida.
 
-## Compilación automática
+## Actualizaciones
 
-GitHub Actions realiza toda la compilación:
+La app consulta la última Release pública de GitHub al abrirse. Si existe una
+versión superior, descarga el APK, comprueba el paquete y la firma y solicita la
+confirmación de Android para instalarlo.
 
-- Cada cambio enviado a `main` ejecuta las pruebas, el análisis de Android y genera
-  un APK descargable desde la ejecución de **Android CI**.
-- Cada etiqueta con formato `vX.Y.Z` vuelve a compilar el proyecto en GitHub y
-  publica el APK en **Releases**.
-- La firma se recupera desde un secreto cifrado de GitHub para que el APK pueda
-  actualizar instalaciones existentes.
-
-Para publicar una nueva versión, primero actualiza `versionCode` y `versionName`,
-y luego crea una etiqueta que coincida con la versión, por ejemplo `v0.3.0`.
+GitHub Actions ejecuta las pruebas, Android Lint y la compilación. Las etiquetas
+`vX.Y.Z` publican automáticamente una APK firmada en Releases.
