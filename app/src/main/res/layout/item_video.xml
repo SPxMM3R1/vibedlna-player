@@ -10,6 +10,7 @@
     android:padding="3dp">
 
     <FrameLayout
+        android:id="@+id/thumbnail_frame"
         android:layout_width="match_parent"
         android:layout_height="112dp"
         android:background="#FF10171A">
