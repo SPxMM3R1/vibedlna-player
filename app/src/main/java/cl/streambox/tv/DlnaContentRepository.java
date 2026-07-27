@@ -17,6 +17,7 @@ import org.jupnp.support.model.container.Container;
 import org.jupnp.support.model.item.Item;
 
 import java.io.IOException;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -53,7 +54,7 @@ final class DlnaContentRepository {
                     start,
                     PAGE_SIZE
             );
-            addEntries(page.content, result);
+            addEntries(page.content, result, server.getUdn());
             if (page.returned <= 0L) break;
             start += page.returned;
             if (page.total > 0L) total = page.total;
@@ -140,13 +141,18 @@ final class DlnaContentRepository {
         return page;
     }
 
-    private static void addEntries(DIDLContent content, List<VideoItem> result) {
+    private static void addEntries(
+            DIDLContent content,
+            List<VideoItem> result,
+            String serverUdn
+    ) {
         for (Container container : content.getContainers()) {
             if (result.size() >= MAX_ITEMS) return;
             String id = container.getId();
             if (id == null || id.isBlank()) continue;
             String title = container.getTitle();
             result.add(VideoItem.container(
+                    serverUdn,
                     id,
                     container.getParentID(),
                     title == null || title.isBlank() ? "Carpeta" : title
@@ -160,13 +166,30 @@ final class DlnaContentRepository {
             String id = item.getId();
             String title = item.getTitle();
             result.add(VideoItem.video(
+                    serverUdn,
                     id == null || id.isBlank() ? resource.uri.toString() : id,
                     item.getParentID(),
                     title == null || title.isBlank() ? "Video" : title,
                     resource.uri,
+                    artworkUri(item, resource.uri),
                     resource.mimeType,
                     resource.durationMs
             ));
+        }
+    }
+
+    private static Uri artworkUri(Item item, Uri mediaUri) {
+        try {
+            URI value = item.getFirstPropertyValue(
+                    DIDLObject.Property.UPNP.ALBUM_ART_URI.class
+            );
+            if (value == null) return null;
+            URI resolved = value.isAbsolute()
+                    ? value
+                    : URI.create(mediaUri.toString()).resolve(value);
+            return Uri.parse(resolved.toString());
+        } catch (Exception ignored) {
+            return null;
         }
     }
 

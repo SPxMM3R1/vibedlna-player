@@ -12,11 +12,13 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.window.OnBackInvokedDispatcher;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.OptIn;
+import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
@@ -27,7 +29,6 @@ import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
 
-import android.widget.SeekBar;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -45,16 +46,19 @@ public final class PlayerActivity extends Activity {
     private PlayerView playerView;
     private View overlay;
     private TextView clock;
+    private TextView endingTime;
     private TextView title;
     private TextView diagnostics;
+    private TextView seekTime;
     private SeekBar seekBar;
     private ExoPlayer player;
     private long declaredDurationMs;
+    private boolean seekControlsRequested;
 
     private final Runnable updateProgress = new Runnable() {
         @Override
         public void run() {
-            updateSeekProgress();
+            updatePlaybackUi();
             if (overlay.getVisibility() == View.VISIBLE) {
                 mainHandler.postDelayed(this, 250L);
             }
@@ -64,16 +68,11 @@ public final class PlayerActivity extends Activity {
     private final Runnable hideOverlay = () -> {
         overlay.setVisibility(View.GONE);
         seekBar.setVisibility(View.GONE);
+        seekTime.setVisibility(View.GONE);
+        seekControlsRequested = false;
         clock.setVisibility(View.GONE);
+        endingTime.setVisibility(View.GONE);
         mainHandler.removeCallbacks(updateProgress);
-    };
-
-    private final Runnable updateClock = new Runnable() {
-        @Override
-        public void run() {
-            clock.setText(new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date()));
-            mainHandler.postDelayed(this, 30_000L);
-        }
     };
 
     @Override
@@ -83,8 +82,10 @@ public final class PlayerActivity extends Activity {
         playerView = findViewById(R.id.player_view);
         overlay = findViewById(R.id.player_overlay);
         clock = findViewById(R.id.player_clock);
+        endingTime = findViewById(R.id.player_ending_time);
         title = findViewById(R.id.player_title);
         diagnostics = findViewById(R.id.player_diagnostics);
+        seekTime = findViewById(R.id.player_seek_time);
         seekBar = findViewById(R.id.player_seek_bar);
         registerBackCallback();
         enterImmersiveMode();
@@ -97,19 +98,20 @@ public final class PlayerActivity extends Activity {
             return;
         }
         title.setText(titleValue == null || titleValue.isBlank() ? "Video" : titleValue);
-        updateClock.run();
         createPlayer(Uri.parse(uriValue));
-        showOverlay(true);
+        showOverlay(false, false);
     }
 
     private void createPlayer(Uri uri) {
         player = new ExoPlayer.Builder(this).build();
+        player.setAudioAttributes(AudioAttributes.DEFAULT, true);
+        player.setHandleAudioBecomingNoisy(true);
         playerView.setPlayer(player);
         player.addListener(new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int playbackState) {
                 updateDiagnostics();
-                if (playbackState == Player.STATE_READY) showOverlay(false);
+                if (playbackState == Player.STATE_READY) updatePlaybackUi();
             }
 
             @Override
@@ -120,7 +122,7 @@ public final class PlayerActivity extends Activity {
             @Override
             public void onPlayerError(PlaybackException error) {
                 diagnostics.setText(error.getErrorCodeName());
-                showOverlay(true);
+                showOverlay(true, false);
             }
         });
         player.setMediaItem(MediaItem.fromUri(uri));
@@ -137,22 +139,23 @@ public final class PlayerActivity extends Activity {
         String resolution = video != null && video.width > 0 && video.height > 0
                 ? video.width + " × " + video.height
                 : "Resolución pendiente";
-        String videoCodec = codec(video == null ? null : video.sampleMimeType);
-        String audioCodec = codec(audio == null ? null : audio.sampleMimeType);
+        String videoCodec = PlaybackUiFormatter.friendlyCodec(
+                video == null ? null : video.sampleMimeType,
+                video == null ? null : video.codecs
+        );
+        String audioCodec = PlaybackUiFormatter.friendlyCodec(
+                audio == null ? null : audio.sampleMimeType,
+                audio == null ? null : audio.codecs
+        );
         diagnostics.setText(resolution + "\n" + videoCodec + " · " + audioCodec);
     }
 
-    private static String codec(String mimeType) {
-        if (mimeType == null || mimeType.isBlank()) return "—";
-        int slash = mimeType.indexOf('/');
-        return (slash >= 0 ? mimeType.substring(slash + 1) : mimeType)
-                .toUpperCase(Locale.ROOT);
-    }
-
-    private void showOverlay(boolean keepVisible) {
+    private void showOverlay(boolean keepVisible, boolean showSeekControls) {
+        seekControlsRequested = showSeekControls;
         overlay.setVisibility(View.VISIBLE);
-        seekBar.setVisibility(View.VISIBLE);
         clock.setVisibility(View.VISIBLE);
+        seekBar.setVisibility(showSeekControls ? View.VISIBLE : View.GONE);
+        seekTime.setVisibility(showSeekControls ? View.VISIBLE : View.GONE);
         mainHandler.removeCallbacks(hideOverlay);
         mainHandler.removeCallbacks(updateProgress);
         updateProgress.run();
@@ -165,13 +168,36 @@ public final class PlayerActivity extends Activity {
         return duration <= 0L || duration == C.TIME_UNSET ? declaredDurationMs : duration;
     }
 
-    private void updateSeekProgress() {
-        if (player == null) return;
-        seekBar.setProgress(PlaybackMath.progress(
-                Math.max(0L, player.getCurrentPosition()),
-                playbackDuration(),
-                PROGRESS_MAX
+    private void updatePlaybackUi() {
+        clock.setText(new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date()));
+        if (player == null) {
+            endingTime.setVisibility(View.GONE);
+            seekTime.setVisibility(View.GONE);
+            return;
+        }
+        long duration = playbackDuration();
+        long position = Math.max(0L, player.getCurrentPosition());
+        if (duration <= 0L || duration == C.TIME_UNSET) {
+            endingTime.setVisibility(View.GONE);
+            seekBar.setVisibility(View.GONE);
+            seekTime.setVisibility(View.GONE);
+            return;
+        }
+        seekBar.setProgress(PlaybackMath.progress(position, duration, PROGRESS_MAX));
+        seekTime.setText(PlaybackUiFormatter.positionAndDuration(position, duration));
+        if (seekControlsRequested && overlay.getVisibility() == View.VISIBLE) {
+            seekBar.setVisibility(View.VISIBLE);
+            seekTime.setVisibility(View.VISIBLE);
+        }
+        endingTime.setText(PlaybackUiFormatter.endingAt(
+                System.currentTimeMillis(),
+                position,
+                duration,
+                Locale.getDefault()
         ));
+        endingTime.setVisibility(
+                overlay.getVisibility() == View.VISIBLE ? View.VISIBLE : View.GONE
+        );
     }
 
     private void seekBy(long deltaMs) {
@@ -182,7 +208,7 @@ public final class PlayerActivity extends Activity {
                 playbackDuration()
         );
         player.seekTo(target);
-        showOverlay(false);
+        showOverlay(false, true);
     }
 
     @Override
@@ -210,13 +236,13 @@ public final class PlayerActivity extends Activity {
             if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER
                     || keyCode == KeyEvent.KEYCODE_ENTER
                     || keyCode == KeyEvent.KEYCODE_INFO) {
-                showOverlay(false);
+                showOverlay(false, false);
                 return true;
             }
             if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE && player != null) {
                 if (player.isPlaying()) player.pause();
                 else player.play();
-                showOverlay(false);
+                showOverlay(false, false);
                 return true;
             }
         }
@@ -233,7 +259,27 @@ public final class PlayerActivity extends Activity {
     }
 
     private void handleBackAction() {
+        releasePlayer();
         finish();
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (!hasFocus && player != null) player.pause();
+    }
+
+    @Override
+    protected void onPause() {
+        if (player != null) player.pause();
+        super.onPause();
+    }
+
+    @Override
+    protected void onStop() {
+        releasePlayer();
+        super.onStop();
+        if (!isFinishing() && !isChangingConfigurations()) finish();
     }
 
     @Override
@@ -263,13 +309,19 @@ public final class PlayerActivity extends Activity {
         }
     }
 
+    private void releasePlayer() {
+        mainHandler.removeCallbacksAndMessages(null);
+        if (player == null) return;
+        player.pause();
+        player.stop();
+        playerView.setPlayer(null);
+        player.release();
+        player = null;
+    }
+
     @Override
     protected void onDestroy() {
-        mainHandler.removeCallbacksAndMessages(null);
-        if (player != null) {
-            player.release();
-            player = null;
-        }
+        releasePlayer();
         super.onDestroy();
     }
 }

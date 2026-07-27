@@ -6,14 +6,20 @@ import android.graphics.BitmapFactory;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.util.LruCache;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -33,6 +39,9 @@ final class ThumbnailRepository {
     private final File legacyCacheDirectory;
     private final Handler mainHandler;
     private final ExecutorService executor = Executors.newFixedThreadPool(2);
+    private final Map<String, List<Callback>> inFlight = new HashMap<>();
+    private final Map<String, Integer> revisions = new HashMap<>();
+    private final Object diskLock = new Object();
     private final LruCache<String, Bitmap> memoryCache =
             new LruCache<String, Bitmap>(16 * 1024) {
                 @Override
@@ -41,55 +50,214 @@ final class ThumbnailRepository {
                 }
             };
 
-    ThumbnailRepository(Context context, Handler mainHandler) {
+    private volatile ThumbnailSettings settings;
+    private volatile boolean destroyed;
+    private int cacheEpoch;
+
+    ThumbnailRepository(
+            Context context,
+            Handler mainHandler,
+            ThumbnailSettings initialSettings
+    ) {
         this.context = context.getApplicationContext();
         this.mainHandler = mainHandler;
+        settings = initialSettings;
         cacheDirectory = context.getDir("video_thumbnails", Context.MODE_PRIVATE);
         legacyCacheDirectory = new File(context.getCacheDir(), "video_thumbnails");
         ensureDirectory(cacheDirectory);
     }
 
+    void setSettings(ThumbnailSettings updatedSettings) {
+        settings = updatedSettings;
+    }
+
+    ThumbnailSettings getSettings() {
+        return settings;
+    }
+
+    String requestKey(VideoItem video) {
+        String name = cacheName(video, settings);
+        synchronized (diskLock) {
+            return name + ":" + cacheEpoch + ":" + revision(name);
+        }
+    }
+
     void load(VideoItem video, Callback callback) {
-        String cacheName = cacheName(video);
+        ThumbnailSettings requestSettings = settings;
+        String cacheName = cacheName(video, requestSettings);
+        int requestEpoch;
+        int requestRevision;
+        synchronized (diskLock) {
+            requestEpoch = cacheEpoch;
+            requestRevision = revision(cacheName);
+        }
+        String workKey = cacheName + ":" + requestEpoch + ":" + requestRevision;
         Bitmap memoryBitmap;
         synchronized (memoryCache) {
-            memoryBitmap = memoryCache.get(cacheName);
+            memoryBitmap = memoryCache.get(workKey);
         }
         if (memoryBitmap != null && !memoryBitmap.isRecycled()) {
-            mainHandler.post(() -> callback.onLoaded(memoryBitmap));
+            post(callback, memoryBitmap);
             return;
         }
 
+        synchronized (inFlight) {
+            List<Callback> callbacks = inFlight.get(workKey);
+            if (callbacks != null) {
+                if (callback != null) callbacks.add(callback);
+                return;
+            }
+            callbacks = new ArrayList<>();
+            if (callback != null) callbacks.add(callback);
+            inFlight.put(workKey, callbacks);
+        }
+
         executor.submit(() -> {
-            Bitmap bitmap = loadOrCreate(video, cacheName);
+            Bitmap bitmap = loadOrCreate(
+                    video,
+                    requestSettings,
+                    cacheName,
+                    requestEpoch,
+                    requestRevision
+            );
             if (bitmap != null) {
                 synchronized (memoryCache) {
-                    memoryCache.put(cacheName, bitmap);
+                    memoryCache.put(workKey, bitmap);
                 }
             }
-            mainHandler.post(() -> callback.onLoaded(bitmap));
+            List<Callback> callbacks;
+            synchronized (inFlight) {
+                callbacks = inFlight.remove(workKey);
+            }
+            if (callbacks == null || callbacks.isEmpty()) return;
+            Bitmap loaded = bitmap;
+            mainHandler.post(() -> {
+                if (destroyed) return;
+                for (Callback item : callbacks) item.onLoaded(loaded);
+            });
         });
     }
 
-    void destroy() {
-        executor.shutdownNow();
+    void prefetch(List<VideoItem> videos) {
+        for (VideoItem video : videos) {
+            if (!video.isContainer()) load(video, null);
+        }
+    }
+
+    void evict(VideoItem video) {
+        for (ThumbnailSettings.Mode mode : ThumbnailSettings.Mode.values()) {
+            String name = cacheName(video, new ThumbnailSettings(mode));
+            synchronized (diskLock) {
+                revisions.put(name, revision(name) + 1);
+                File file = new File(cacheDirectory, name);
+                if (file.exists() && !file.delete()) {
+                    Log.w(TAG, "No se pudo borrar " + file);
+                }
+            }
+        }
         synchronized (memoryCache) {
             memoryCache.evictAll();
         }
     }
 
-    private Bitmap loadOrCreate(VideoItem video, String cacheName) {
+    void clearAll() {
+        synchronized (memoryCache) {
+            memoryCache.evictAll();
+        }
+        synchronized (diskLock) {
+            cacheEpoch++;
+            revisions.clear();
+            File[] files = cacheDirectory.listFiles();
+            deleteFiles(files);
+            deleteFiles(legacyCacheDirectory.listFiles());
+        }
+    }
+
+    void destroy() {
+        destroyed = true;
+        executor.shutdownNow();
+        synchronized (inFlight) {
+            inFlight.clear();
+        }
+        synchronized (memoryCache) {
+            memoryCache.evictAll();
+        }
+    }
+
+    private Bitmap loadOrCreate(
+            VideoItem video,
+            ThumbnailSettings requestSettings,
+            String cacheName,
+            int requestEpoch,
+            int requestRevision
+    ) {
         File cached = new File(cacheDirectory, cacheName);
-        Bitmap bitmap = decode(cached);
+        Bitmap bitmap;
+        synchronized (diskLock) {
+            bitmap = requestIsCurrent(cacheName, requestEpoch, requestRevision)
+                    ? decode(cached)
+                    : null;
+        }
         if (bitmap != null) return bitmap;
 
-        File legacy = new File(legacyCacheDirectory, legacyCacheName(video));
-        bitmap = decode(legacy);
-        if (bitmap != null) {
-            save(cached, bitmap);
-            return bitmap;
+        if (requestSettings.prefersServerArtwork() && video.getArtworkUri() != null) {
+            bitmap = downloadArtwork(video.getArtworkUri());
+            if (bitmap != null) {
+                Bitmap cropped = centerCrop(bitmap, WIDTH, HEIGHT);
+                if (cropped != bitmap) bitmap.recycle();
+                saveIfCurrent(cached, cropped, cacheName, requestEpoch, requestRevision);
+                return cropped;
+            }
         }
+        if (requestSettings.generatedPercentage() == 50) {
+            File legacy = new File(legacyCacheDirectory, legacyCacheName(video));
+            bitmap = decode(legacy);
+            if (bitmap != null) {
+                saveIfCurrent(cached, bitmap, cacheName, requestEpoch, requestRevision);
+                return bitmap;
+            }
+        }
+        return createFrame(
+                video,
+                requestSettings.generatedPercentage(),
+                cached,
+                cacheName,
+                requestEpoch,
+                requestRevision
+        );
+    }
 
+    private Bitmap downloadArtwork(Uri artworkUri) {
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) new URL(artworkUri.toString()).openConnection();
+            connection.setConnectTimeout(8_000);
+            connection.setReadTimeout(15_000);
+            connection.setRequestProperty("User-Agent", "VibeDLNA/0.3.3");
+            connection.setRequestProperty("transferMode.dlna.org", "Interactive");
+            connection.connect();
+            if (connection.getResponseCode() < 200 || connection.getResponseCode() >= 300) {
+                return null;
+            }
+            try (InputStream input = connection.getInputStream()) {
+                return BitmapFactory.decodeStream(input);
+            }
+        } catch (Exception error) {
+            Log.w(TAG, "No se pudo descargar " + artworkUri, error);
+            return null;
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+    }
+
+    private Bitmap createFrame(
+            VideoItem video,
+            int percentage,
+            File destination,
+            String cacheName,
+            int requestEpoch,
+            int requestRevision
+    ) {
         MediaMetadataRetriever retriever = new MediaMetadataRetriever();
         try {
             String scheme = video.getUri().getScheme();
@@ -108,15 +276,21 @@ final class ThumbnailRepository {
                 );
                 if (value != null) durationMs = Long.parseLong(value);
             }
-            long midpointUs = Math.max(0, durationMs * 500L);
+            long frameUs = Math.max(0L, durationMs * percentage * 10L);
             Bitmap source = retriever.getFrameAtTime(
-                    midpointUs,
+                    frameUs,
                     MediaMetadataRetriever.OPTION_CLOSEST
             );
             if (source == null) return null;
-            bitmap = centerCrop(source, WIDTH, HEIGHT);
+            Bitmap bitmap = centerCrop(source, WIDTH, HEIGHT);
             if (bitmap != source) source.recycle();
-            save(cached, bitmap);
+            saveIfCurrent(
+                    destination,
+                    bitmap,
+                    cacheName,
+                    requestEpoch,
+                    requestRevision
+            );
             return bitmap;
         } catch (Exception error) {
             Log.w(TAG, "No se pudo crear la miniatura de " + video.getName(), error);
@@ -128,6 +302,43 @@ final class ThumbnailRepository {
                 // Nada que liberar.
             }
         }
+    }
+
+    private void post(Callback callback, Bitmap bitmap) {
+        if (callback == null) return;
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            if (!destroyed) callback.onLoaded(bitmap);
+            return;
+        }
+        mainHandler.post(() -> {
+            if (!destroyed) callback.onLoaded(bitmap);
+        });
+    }
+
+    private void saveIfCurrent(
+            File destination,
+            Bitmap bitmap,
+            String cacheName,
+            int requestEpoch,
+            int requestRevision
+    ) {
+        synchronized (diskLock) {
+            if (!requestIsCurrent(cacheName, requestEpoch, requestRevision)) return;
+            save(destination, bitmap);
+        }
+    }
+
+    private boolean requestIsCurrent(
+            String cacheName,
+            int requestEpoch,
+            int requestRevision
+    ) {
+        return requestEpoch == cacheEpoch && requestRevision == revision(cacheName);
+    }
+
+    private int revision(String cacheName) {
+        Integer value = revisions.get(cacheName);
+        return value == null ? 0 : value;
     }
 
     private static Bitmap centerCrop(Bitmap source, int targetWidth, int targetHeight) {
@@ -156,10 +367,8 @@ final class ThumbnailRepository {
 
     private static void save(File destination, Bitmap bitmap) {
         ensureDirectory(destination.getParentFile());
-        File temporary = new File(
-                destination.getParentFile(),
-                destination.getName() + ".tmp"
-        );
+        File temporary = new File(destination.getParentFile(), destination.getName() + ".tmp");
+        File backup = new File(destination.getParentFile(), destination.getName() + ".bak");
         try {
             try (FileOutputStream output = new FileOutputStream(temporary)) {
                 if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 86, output)) {
@@ -168,17 +377,24 @@ final class ThumbnailRepository {
                 output.flush();
                 output.getFD().sync();
             }
-            if (destination.exists() && !destination.delete()) {
-                throw new IllegalStateException("No se pudo reemplazar la miniatura anterior");
+            if (backup.exists() && !backup.delete()) {
+                throw new IllegalStateException("No se pudo limpiar el respaldo anterior");
+            }
+            if (destination.exists() && !destination.renameTo(backup)) {
+                throw new IllegalStateException("No se pudo respaldar la miniatura anterior");
             }
             if (!temporary.renameTo(destination)) {
+                if (backup.exists()) backup.renameTo(destination);
                 throw new IllegalStateException("No se pudo finalizar la miniatura");
+            }
+            if (backup.exists() && !backup.delete()) {
+                Log.w(TAG, "No se pudo borrar el respaldo " + backup);
             }
         } catch (Exception error) {
             if (temporary.exists() && !temporary.delete()) {
-                Log.w(TAG, "No se pudo eliminar una miniatura temporal: " + temporary);
+                Log.w(TAG, "No se pudo eliminar " + temporary);
             }
-            Log.w(TAG, "No se pudo guardar la miniatura: " + destination, error);
+            Log.w(TAG, "No se pudo guardar " + destination, error);
         }
     }
 
@@ -188,14 +404,21 @@ final class ThumbnailRepository {
         }
     }
 
-    private static String cacheName(VideoItem video) {
-        Uri uri = video.getUri();
-        String identity = uri.getHost()
-                + ":" + uri.getPath()
-                + ":" + video.getName()
-                + ":" + video.getDurationMs()
-                + ":" + video.getLastModified();
-        return sha256(identity) + ".jpg";
+    private static void deleteFiles(File[] files) {
+        if (files == null) return;
+        for (File file : files) {
+            if (file.isFile() && !file.delete()) {
+                Log.w(TAG, "No se pudo borrar " + file);
+            }
+        }
+    }
+
+    static String cacheName(VideoItem video, ThumbnailSettings settings) {
+        return ThumbnailCacheKey.name(
+                video.getServerUdn(),
+                video.getId(),
+                settings.cacheVariant()
+        );
     }
 
     private static String legacyCacheName(VideoItem video) {

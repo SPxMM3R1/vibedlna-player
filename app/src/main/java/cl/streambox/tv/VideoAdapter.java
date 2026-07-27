@@ -34,6 +34,10 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
         notifyDataSetChanged();
     }
 
+    void refreshThumbnails() {
+        notifyDataSetChanged();
+    }
+
     @Override
     public long getItemId(int position) {
         return entries.get(position).stableKey().hashCode();
@@ -59,7 +63,7 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
     @Override
     public void onBindViewHolder(@NonNull VideoHolder holder, int position) {
         VideoItem entry = entries.get(position);
-        String token = entry.stableKey();
+        String token = entry.stableKey() + ":" + thumbnails.requestKey(entry);
         holder.thumbnail.setTag(token);
         holder.thumbnail.setImageDrawable(null);
         holder.title.setText(entry.getName());
