@@ -15,33 +15,65 @@
         app:show_buffering="always"
         app:use_controller="false" />
 
-    <TextView
-        android:id="@+id/player_clock"
+    <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|end"
-        android:layout_marginTop="24dp"
-        android:layout_marginEnd="36dp"
+        android:layout_marginTop="22dp"
+        android:layout_marginEnd="34dp"
+        android:gravity="end"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/player_clock"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:includeFontPadding="false"
+            android:textColor="@color/white"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/player_ending_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:includeFontPadding="false"
+            android:textColor="@color/muted"
+            android:textSize="10sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/player_seek_time"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_marginEnd="44dp"
+        android:layout_marginBottom="124dp"
+        android:includeFontPadding="false"
         android:textColor="@color/white"
-        android:textSize="18sp" />
+        android:textSize="11sp"
+        android:visibility="gone" />
 
     <SeekBar
         android:id="@+id/player_seek_bar"
         android:layout_width="match_parent"
-        android:layout_height="14dp"
+        android:layout_height="18dp"
         android:layout_gravity="bottom"
         android:layout_marginStart="44dp"
         android:layout_marginEnd="44dp"
-        android:layout_marginBottom="108dp"
+        android:layout_marginBottom="103dp"
         android:clickable="false"
         android:focusable="false"
         android:max="1000"
-        android:paddingStart="0dp"
-        android:paddingEnd="0dp"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
         android:progressDrawable="@drawable/player_seek_progress"
         android:splitTrack="false"
         android:thumb="@drawable/player_seek_thumb"
-        android:thumbOffset="5dp" />
+        android:thumbOffset="0dp"
+        android:visibility="gone" />
 
     <LinearLayout
         android:id="@+id/player_overlay"
@@ -50,24 +82,17 @@
         android:layout_gravity="bottom"
         android:layout_marginStart="32dp"
         android:layout_marginEnd="32dp"
-        android:layout_marginBottom="28dp"
+        android:layout_marginBottom="22dp"
         android:background="@drawable/channel_overlay_background"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingStart="18dp"
         android:paddingEnd="18dp">
 
-        <ImageView
-            android:layout_width="42dp"
-            android:layout_height="42dp"
-            android:contentDescription="@null"
-            android:src="@drawable/ic_vibedlna" />
-
         <TextView
             android:id="@+id/player_title"
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_marginStart="14dp"
             android:layout_weight="1"
             android:ellipsize="end"
             android:gravity="center_vertical"
@@ -79,11 +104,11 @@
 
         <TextView
             android:id="@+id/player_diagnostics"
-            android:layout_width="250dp"
+            android:layout_width="230dp"
             android:layout_height="wrap_content"
             android:gravity="end"
+            android:includeFontPadding="false"
             android:textColor="@color/muted"
             android:textSize="11sp" />
-
     </LinearLayout>
 </FrameLayout>

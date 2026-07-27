@@ -22,6 +22,23 @@
     <string name="select_dlna_server_description">Servidores MediaServer disponibles en esta red.</string>
     <string name="thumbnails">Miniaturas</string>
     <string name="frame_at_half" formatted="false">Fotograma al 50%</string>
+    <string name="thumbnail_server" formatted="false">Servidor · respaldo al 50%</string>
+    <string name="thumbnail_generated_25" formatted="false">Generada al 25%</string>
+    <string name="thumbnail_generated_50" formatted="false">Generada al 50%</string>
+    <string name="thumbnail_generated_75" formatted="false">Generada al 75%</string>
+    <string name="thumbnail_generate_missing">Generar faltantes en esta carpeta</string>
+    <string name="thumbnail_regenerate_folder">Regenerar esta carpeta completa</string>
+    <string name="thumbnail_clear_all">Borrar todas las miniaturas</string>
+    <string name="thumbnail_scanning_folders">Examinando carpetas…</string>
+    <string name="thumbnail_processing">Procesando %1$d de %2$d</string>
+    <string name="thumbnail_ready">%1$d miniaturas listas</string>
+    <string name="thumbnail_none_found">No se encontraron videos</string>
+    <string name="thumbnail_cancelled">Proceso cancelado</string>
+    <string name="thumbnail_cache_cleared">Se borraron todas las miniaturas</string>
+    <string name="thumbnail_clear_title">¿Borrar todas las miniaturas?</string>
+    <string name="thumbnail_clear_description">Se volverán a cargar o generar cuando sean necesarias.</string>
+    <string name="cancel">Cancelar</string>
+    <string name="delete">Borrar</string>
     <string name="privacy_note">El progreso de reproducción no se guarda</string>
     <string name="options_hint">OK  Seleccionar     Atrás  Cerrar</string>
     <string name="exit_dialog_title">¿Salir de VibeDLNA Player?</string>

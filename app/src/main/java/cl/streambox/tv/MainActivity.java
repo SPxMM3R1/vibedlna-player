@@ -29,15 +29,15 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import java.text.SimpleDateFormat;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -45,6 +45,7 @@ public final class MainActivity extends Activity {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService dlnaExecutor = Executors.newFixedThreadPool(2);
     private final ExecutorService updateExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService thumbnailScanExecutor = Executors.newSingleThreadExecutor();
     private final List<VideoItem> entries = new ArrayList<>();
     private final List<DlnaServer> availableServers = new ArrayList<>();
     private final Map<String, String> containerNames = new HashMap<>();
@@ -55,9 +56,6 @@ public final class MainActivity extends Activity {
     private TextView emptyDescription;
     private ProgressBar libraryProgress;
     private Button searchButton;
-    private TextView folderLabel;
-    private TextView entryCount;
-    private TextView clock;
     private Button optionsButton;
     private View optionsScrim;
     private View optionsPanel;
@@ -65,6 +63,13 @@ public final class MainActivity extends Activity {
     private Button discoverOption;
     private TextView serverValue;
     private TextView folderValue;
+    private Button thumbnailOption;
+    private TextView thumbnailValue;
+    private Button generateThumbnailsOption;
+    private Button regenerateThumbnailsOption;
+    private Button clearThumbnailsOption;
+    private TextView thumbnailProgress;
+    private Button cancelThumbnailScan;
 
     private LibraryPreferences preferences;
     private DlnaDiscovery discovery;
@@ -80,14 +85,7 @@ public final class MainActivity extends Activity {
     private Dialog exitDialog;
     private int discoveryGeneration;
     private int browseGeneration;
-
-    private final Runnable updateClock = new Runnable() {
-        @Override
-        public void run() {
-            clock.setText(new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date()));
-            mainHandler.postDelayed(this, 30_000L);
-        }
-    };
+    private int thumbnailScanGeneration;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -96,7 +94,11 @@ public final class MainActivity extends Activity {
         preferences = new LibraryPreferences(this);
         discovery = new DlnaDiscovery(this);
         contentRepository = new DlnaContentRepository(discovery);
-        thumbnailRepository = new ThumbnailRepository(this, mainHandler);
+        thumbnailRepository = new ThumbnailRepository(
+                this,
+                mainHandler,
+                preferences.getThumbnailSettings()
+        );
         bindViews();
         configureGrid();
         configureActions();
@@ -105,7 +107,6 @@ public final class MainActivity extends Activity {
 
         appUpdater = new AppUpdater(this, updateExecutor, mainHandler);
         appUpdater.checkForUpdates();
-        updateClock.run();
         discoverServers(true);
     }
 
@@ -116,9 +117,6 @@ public final class MainActivity extends Activity {
         emptyDescription = findViewById(R.id.empty_description);
         libraryProgress = findViewById(R.id.library_progress);
         searchButton = findViewById(R.id.choose_folder_button);
-        folderLabel = findViewById(R.id.folder_label);
-        entryCount = findViewById(R.id.video_count);
-        clock = findViewById(R.id.clock);
         optionsButton = findViewById(R.id.options_button);
         optionsScrim = findViewById(R.id.options_scrim);
         optionsPanel = findViewById(R.id.options_panel);
@@ -126,6 +124,13 @@ public final class MainActivity extends Activity {
         discoverOption = findViewById(R.id.discover_option);
         serverValue = findViewById(R.id.server_value);
         folderValue = findViewById(R.id.folder_value);
+        thumbnailOption = findViewById(R.id.thumbnail_option);
+        thumbnailValue = findViewById(R.id.thumbnail_value);
+        generateThumbnailsOption = findViewById(R.id.generate_thumbnails_option);
+        regenerateThumbnailsOption = findViewById(R.id.regenerate_thumbnails_option);
+        clearThumbnailsOption = findViewById(R.id.clear_thumbnails_option);
+        thumbnailProgress = findViewById(R.id.thumbnail_progress);
+        cancelThumbnailScan = findViewById(R.id.cancel_thumbnail_scan);
     }
 
     private void configureGrid() {
@@ -158,6 +163,11 @@ public final class MainActivity extends Activity {
             closeOptions();
             discoverServers(false);
         });
+        thumbnailOption.setOnClickListener(view -> selectNextThumbnailMode());
+        generateThumbnailsOption.setOnClickListener(view -> scanThumbnailTree(false));
+        regenerateThumbnailsOption.setOnClickListener(view -> scanThumbnailTree(true));
+        clearThumbnailsOption.setOnClickListener(view -> showClearThumbnailsDialog());
+        cancelThumbnailScan.setOnClickListener(view -> cancelThumbnailScan());
     }
 
     private void discoverServers(boolean automatic) {
@@ -270,6 +280,7 @@ public final class MainActivity extends Activity {
     }
 
     private void selectAvailableServer(DlnaServer server, boolean resetFolder) {
+        thumbnailScanGeneration++;
         currentServer = server;
         if (resetFolder || !server.getUdn().equals(preferences.getServerUdn())) {
             preferences.selectServer(server);
@@ -328,6 +339,7 @@ public final class MainActivity extends Activity {
             }
         });
         adapter.submit(entries);
+        thumbnailRepository.prefetch(entries);
         updateHeader();
         updateOptionValues();
         libraryProgress.setVisibility(View.GONE);
@@ -379,15 +391,12 @@ public final class MainActivity extends Activity {
         emptyDescription.setVisibility(View.VISIBLE);
         libraryProgress.setVisibility(View.VISIBLE);
         searchButton.setVisibility(View.GONE);
-        entryCount.setText(getString(R.string.entry_count, 0));
     }
 
     private void showNoServers() {
         currentServer = null;
         entries.clear();
         adapter.submit(entries);
-        folderLabel.setText(R.string.select_server);
-        entryCount.setText(getString(R.string.entry_count, 0));
         videoGrid.setVisibility(View.GONE);
         emptyState.setVisibility(View.VISIBLE);
         emptyTitle.setText(R.string.no_servers);
@@ -411,16 +420,7 @@ public final class MainActivity extends Activity {
     }
 
     private void updateHeader() {
-        if (currentServer == null) {
-            folderLabel.setText(R.string.select_server);
-        } else {
-            folderLabel.setText(getString(
-                    R.string.source_label,
-                    currentServer.getFriendlyName(),
-                    currentContainerName
-            ));
-        }
-        entryCount.setText(getString(R.string.entry_count, entries.size()));
+        // La biblioteca queda deliberadamente limpia; las tarjetas dan el contexto.
     }
 
     private void showOptions() {
@@ -455,6 +455,164 @@ public final class MainActivity extends Activity {
         folderValue.setText(currentContainerName == null
                 ? preferences.getContainerName()
                 : currentContainerName);
+        thumbnailValue.setText(thumbnailModeLabel(thumbnailRepository.getSettings().mode()));
+    }
+
+    private void selectNextThumbnailMode() {
+        ThumbnailSettings.Mode current = thumbnailRepository.getSettings().mode();
+        ThumbnailSettings.Mode[] values = ThumbnailSettings.Mode.values();
+        ThumbnailSettings.Mode next = values[(current.ordinal() + 1) % values.length];
+        ThumbnailSettings updated = new ThumbnailSettings(next);
+        preferences.setThumbnailMode(next);
+        thumbnailRepository.setSettings(updated);
+        thumbnailValue.setText(thumbnailModeLabel(next));
+        adapter.refreshThumbnails();
+        thumbnailRepository.prefetch(entries);
+    }
+
+    private String thumbnailModeLabel(ThumbnailSettings.Mode mode) {
+        switch (mode) {
+            case GENERATED_25:
+                return getString(R.string.thumbnail_generated_25);
+            case GENERATED_50:
+                return getString(R.string.thumbnail_generated_50);
+            case GENERATED_75:
+                return getString(R.string.thumbnail_generated_75);
+            case SERVER:
+            default:
+                return getString(R.string.thumbnail_server);
+        }
+    }
+
+    private void scanThumbnailTree(boolean regenerate) {
+        if (currentServer == null) return;
+        int generation = ++thumbnailScanGeneration;
+        DlnaServer server = currentServer;
+        String rootId = currentContainerId;
+        setThumbnailProgress(getString(R.string.thumbnail_scanning_folders), true);
+        thumbnailScanExecutor.submit(() -> {
+            List<VideoItem> videos = new ArrayList<>();
+            ArrayDeque<String> pending = new ArrayDeque<>();
+            Set<String> visited = new HashSet<>();
+            pending.add(rootId);
+            while (!pending.isEmpty() && generation == thumbnailScanGeneration) {
+                String containerId = pending.removeFirst();
+                if (!visited.add(containerId)) continue;
+                try {
+                    DlnaContentRepository.BrowseResult result =
+                            contentRepository.browse(server, containerId);
+                    for (VideoItem item : result.entries) {
+                        if (item.isContainer()) pending.addLast(item.getId());
+                        else videos.add(item);
+                    }
+                } catch (Exception ignored) {
+                    // Continúa con las demás carpetas accesibles.
+                }
+            }
+            mainHandler.post(() -> {
+                if (generation != thumbnailScanGeneration || isFinishing()) return;
+                processThumbnailVideos(videos, regenerate, generation);
+            });
+        });
+    }
+
+    private void processThumbnailVideos(
+            List<VideoItem> videos,
+            boolean regenerate,
+            int generation
+    ) {
+        if (videos.isEmpty()) {
+            setThumbnailProgress(getString(R.string.thumbnail_none_found), false);
+            return;
+        }
+        ThumbnailBatch batch = new ThumbnailBatch(videos, regenerate, generation);
+        setThumbnailProgress(
+                getString(R.string.thumbnail_processing, 0, videos.size()),
+                true
+        );
+        startNextThumbnail(batch);
+        startNextThumbnail(batch);
+    }
+
+    private void startNextThumbnail(ThumbnailBatch batch) {
+        if (batch.generation != thumbnailScanGeneration) return;
+        if (batch.nextIndex >= batch.videos.size()) {
+            if (batch.active == 0) {
+                setThumbnailProgress(
+                        getString(R.string.thumbnail_ready, batch.completed),
+                        false
+                );
+                adapter.refreshThumbnails();
+            }
+            return;
+        }
+        VideoItem video = batch.videos.get(batch.nextIndex++);
+        batch.active++;
+        if (batch.regenerate) thumbnailRepository.evict(video);
+        thumbnailRepository.load(video, bitmap -> {
+            if (batch.generation != thumbnailScanGeneration) return;
+            batch.active--;
+            batch.completed++;
+            setThumbnailProgress(
+                    getString(
+                            R.string.thumbnail_processing,
+                            batch.completed,
+                            batch.videos.size()
+                    ),
+                    true
+            );
+            startNextThumbnail(batch);
+        });
+    }
+
+    private void cancelThumbnailScan() {
+        thumbnailScanGeneration++;
+        setThumbnailProgress(getString(R.string.thumbnail_cancelled), false);
+    }
+
+    private void setThumbnailProgress(String message, boolean running) {
+        thumbnailProgress.setText(message);
+        thumbnailProgress.setVisibility(View.VISIBLE);
+        cancelThumbnailScan.setVisibility(running ? View.VISIBLE : View.GONE);
+    }
+
+    private void showClearThumbnailsDialog() {
+        Dialog dialog = new Dialog(this);
+        dialog.setContentView(R.layout.dialog_clear_thumbnails);
+        dialog.setCanceledOnTouchOutside(false);
+        Button cancel = dialog.findViewById(R.id.cancel_clear_thumbnails);
+        Button clear = dialog.findViewById(R.id.confirm_clear_thumbnails);
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        clear.setOnClickListener(view -> {
+            dialog.dismiss();
+            cancelThumbnailScan();
+            thumbnailScanExecutor.submit(() -> {
+                thumbnailRepository.clearAll();
+                mainHandler.post(() -> {
+                    if (isFinishing()) return;
+                    adapter.refreshThumbnails();
+                    setThumbnailProgress(
+                            getString(R.string.thumbnail_cache_cleared),
+                            false
+                    );
+                });
+            });
+        });
+        dialog.setOnShowListener(ignored -> clear.requestFocus());
+        dialog.setOnDismissListener(ignored -> {
+            if (!isFinishing()) enterImmersiveMode();
+        });
+        dialog.show();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            WindowManager.LayoutParams attributes = window.getAttributes();
+            attributes.width = WindowManager.LayoutParams.WRAP_CONTENT;
+            attributes.height = WindowManager.LayoutParams.WRAP_CONTENT;
+            attributes.dimAmount = 0.68f;
+            window.setAttributes(attributes);
+        }
     }
 
     @Override
@@ -506,7 +664,9 @@ public final class MainActivity extends Activity {
     }
 
     private void handleBackAction() {
-        if (optionsPanel.getVisibility() == View.VISIBLE) {
+        if (cancelThumbnailScan.getVisibility() == View.VISIBLE) {
+            cancelThumbnailScan();
+        } else if (optionsPanel.getVisibility() == View.VISIBLE) {
             closeOptions();
         } else if (serverDialog != null && serverDialog.isShowing()) {
             serverDialog.dismiss();
@@ -596,10 +756,26 @@ public final class MainActivity extends Activity {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
+    private static final class ThumbnailBatch {
+        final List<VideoItem> videos;
+        final boolean regenerate;
+        final int generation;
+        int nextIndex;
+        int active;
+        int completed;
+
+        ThumbnailBatch(List<VideoItem> videos, boolean regenerate, int generation) {
+            this.videos = videos;
+            this.regenerate = regenerate;
+            this.generation = generation;
+        }
+    }
+
     @Override
     protected void onDestroy() {
         discoveryGeneration++;
         browseGeneration++;
+        thumbnailScanGeneration++;
         mainHandler.removeCallbacksAndMessages(null);
         if (serverDialog != null) serverDialog.dismiss();
         if (exitDialog != null) exitDialog.dismiss();
@@ -608,6 +784,7 @@ public final class MainActivity extends Activity {
         discovery.close();
         dlnaExecutor.shutdownNow();
         updateExecutor.shutdownNow();
+        thumbnailScanExecutor.shutdownNow();
         super.onDestroy();
     }
 }

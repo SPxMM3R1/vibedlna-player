@@ -9,6 +9,7 @@ final class LibraryPreferences {
     private static final String KEY_SERVER_NAME = "server_name";
     private static final String KEY_CONTAINER_ID = "container_id";
     private static final String KEY_CONTAINER_NAME = "container_name";
+    private static final String KEY_THUMBNAIL_MODE = "thumbnail_mode";
 
     private final SharedPreferences preferences;
 
@@ -45,6 +46,24 @@ final class LibraryPreferences {
         preferences.edit()
                 .putString(KEY_CONTAINER_ID, id)
                 .putString(KEY_CONTAINER_NAME, name)
+                .apply();
+    }
+
+    ThumbnailSettings getThumbnailSettings() {
+        String value = preferences.getString(
+                KEY_THUMBNAIL_MODE,
+                ThumbnailSettings.Mode.SERVER.name()
+        );
+        try {
+            return new ThumbnailSettings(ThumbnailSettings.Mode.valueOf(value));
+        } catch (Exception ignored) {
+            return new ThumbnailSettings(ThumbnailSettings.Mode.SERVER);
+        }
+    }
+
+    void setThumbnailMode(ThumbnailSettings.Mode mode) {
+        preferences.edit()
+                .putString(KEY_THUMBNAIL_MODE, mode.name())
                 .apply();
     }
 }
