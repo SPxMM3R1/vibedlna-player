@@ -57,6 +57,10 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
                 width,
                 ViewGroup.LayoutParams.WRAP_CONTENT
         ));
+        View thumbnailFrame = view.findViewById(R.id.thumbnail_frame);
+        ViewGroup.LayoutParams thumbnailLayout = thumbnailFrame.getLayoutParams();
+        thumbnailLayout.height = CardLayoutMath.thumbnailHeight(width, dp(parent, 6));
+        thumbnailFrame.setLayoutParams(thumbnailLayout);
         return new VideoHolder(view);
     }
 
