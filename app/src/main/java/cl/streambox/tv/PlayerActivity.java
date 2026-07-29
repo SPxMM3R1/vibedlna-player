@@ -86,7 +86,6 @@ public final class PlayerActivity extends Activity {
         seekTime.setVisibility(View.GONE);
         seekControlsRequested = false;
         clockPanel.setVisibility(View.GONE);
-        mainHandler.removeCallbacks(hideOverlay);
         mainHandler.removeCallbacks(updateProgress);
     };
 
