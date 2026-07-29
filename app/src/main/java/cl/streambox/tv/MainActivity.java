@@ -12,6 +12,9 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -22,6 +25,7 @@ import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.window.OnBackInvokedDispatcher;
 
@@ -63,8 +67,10 @@ public final class MainActivity extends Activity {
     private Button discoverOption;
     private TextView serverValue;
     private TextView folderValue;
-    private Button thumbnailOption;
-    private TextView thumbnailValue;
+    private Switch serverArtworkSwitch;
+    private Button thumbnailPercent25;
+    private Button thumbnailPercent50;
+    private Button thumbnailPercent75;
     private Button generateThumbnailsOption;
     private Button regenerateThumbnailsOption;
     private Button clearThumbnailsOption;
@@ -86,12 +92,14 @@ public final class MainActivity extends Activity {
     private int discoveryGeneration;
     private int browseGeneration;
     private int thumbnailScanGeneration;
+    private boolean updatingThumbnailOptions;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         preferences = new LibraryPreferences(this);
+        new PlaybackResumeStore(this).prune(System.currentTimeMillis());
         discovery = new DlnaDiscovery(this);
         contentRepository = new DlnaContentRepository(discovery);
         thumbnailRepository = new ThumbnailRepository(
@@ -124,13 +132,24 @@ public final class MainActivity extends Activity {
         discoverOption = findViewById(R.id.discover_option);
         serverValue = findViewById(R.id.server_value);
         folderValue = findViewById(R.id.folder_value);
-        thumbnailOption = findViewById(R.id.thumbnail_option);
-        thumbnailValue = findViewById(R.id.thumbnail_value);
+        serverArtworkSwitch = findViewById(R.id.server_artwork_switch);
+        thumbnailPercent25 = findViewById(R.id.thumbnail_percent_25);
+        thumbnailPercent50 = findViewById(R.id.thumbnail_percent_50);
+        thumbnailPercent75 = findViewById(R.id.thumbnail_percent_75);
         generateThumbnailsOption = findViewById(R.id.generate_thumbnails_option);
         regenerateThumbnailsOption = findViewById(R.id.regenerate_thumbnails_option);
         clearThumbnailsOption = findViewById(R.id.clear_thumbnails_option);
         thumbnailProgress = findViewById(R.id.thumbnail_progress);
         cancelThumbnailScan = findViewById(R.id.cancel_thumbnail_scan);
+        TextView wordmark = findViewById(R.id.app_wordmark);
+        SpannableString wordmarkText = new SpannableString("VibeDLNA Player");
+        wordmarkText.setSpan(
+                new ForegroundColorSpan(getColor(R.color.cyan)),
+                4,
+                8,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        );
+        wordmark.setText(wordmarkText);
     }
 
     private void configureGrid() {
@@ -163,7 +182,19 @@ public final class MainActivity extends Activity {
             closeOptions();
             discoverServers(false);
         });
-        thumbnailOption.setOnClickListener(view -> selectNextThumbnailMode());
+        serverArtworkSwitch.setOnCheckedChangeListener((button, checked) -> {
+            if (updatingThumbnailOptions) return;
+            preferences.setThumbnailServerArtwork(checked);
+            thumbnailRepository.setSettings(checked
+                    ? new ThumbnailSettings(ThumbnailSettings.Mode.SERVER)
+                    : ThumbnailSettings.generated(preferences.getThumbnailPercentage()));
+            updateOptionValues();
+            adapter.refreshThumbnails();
+            thumbnailRepository.prefetch(entries);
+        });
+        thumbnailPercent25.setOnClickListener(view -> selectThumbnailPercentage(25));
+        thumbnailPercent50.setOnClickListener(view -> selectThumbnailPercentage(50));
+        thumbnailPercent75.setOnClickListener(view -> selectThumbnailPercentage(75));
         generateThumbnailsOption.setOnClickListener(view -> scanThumbnailTree(false));
         regenerateThumbnailsOption.setOnClickListener(view -> scanThumbnailTree(true));
         clearThumbnailsOption.setOnClickListener(view -> showClearThumbnailsDialog());
@@ -366,6 +397,7 @@ public final class MainActivity extends Activity {
         intent.putExtra(PlayerActivity.EXTRA_URI, entry.getUri().toString());
         intent.putExtra(PlayerActivity.EXTRA_TITLE, entry.getName());
         intent.putExtra(PlayerActivity.EXTRA_DURATION, entry.getDurationMs());
+        intent.putExtra(PlayerActivity.EXTRA_RESUME_KEY, entry.stableKey());
         startActivity(intent);
     }
 
@@ -395,6 +427,9 @@ public final class MainActivity extends Activity {
 
     private void showNoServers() {
         currentServer = null;
+        currentContainerId = "0";
+        currentContainerName = "Inicio";
+        currentParentId = null;
         entries.clear();
         adapter.submit(entries);
         videoGrid.setVisibility(View.GONE);
@@ -455,33 +490,36 @@ public final class MainActivity extends Activity {
         folderValue.setText(currentContainerName == null
                 ? preferences.getContainerName()
                 : currentContainerName);
-        thumbnailValue.setText(thumbnailModeLabel(thumbnailRepository.getSettings().mode()));
+        ThumbnailSettings settings = thumbnailRepository.getSettings();
+        updatingThumbnailOptions = true;
+        serverArtworkSwitch.setChecked(settings.prefersServerArtwork());
+        updatingThumbnailOptions = false;
+        int percentage = preferences.getThumbnailPercentage();
+        setPercentSelected(thumbnailPercent25, percentage == 25);
+        setPercentSelected(thumbnailPercent50, percentage == 50);
+        setPercentSelected(thumbnailPercent75, percentage == 75);
+        boolean enabled = !settings.prefersServerArtwork();
+        thumbnailPercent25.setEnabled(enabled);
+        thumbnailPercent50.setEnabled(enabled);
+        thumbnailPercent75.setEnabled(enabled);
+        float alpha = enabled ? 1f : 0.42f;
+        thumbnailPercent25.setAlpha(alpha);
+        thumbnailPercent50.setAlpha(alpha);
+        thumbnailPercent75.setAlpha(alpha);
     }
 
-    private void selectNextThumbnailMode() {
-        ThumbnailSettings.Mode current = thumbnailRepository.getSettings().mode();
-        ThumbnailSettings.Mode[] values = ThumbnailSettings.Mode.values();
-        ThumbnailSettings.Mode next = values[(current.ordinal() + 1) % values.length];
-        ThumbnailSettings updated = new ThumbnailSettings(next);
-        preferences.setThumbnailMode(next);
+    private void selectThumbnailPercentage(int percentage) {
+        preferences.setThumbnailPercentage(percentage);
+        preferences.setThumbnailServerArtwork(false);
+        ThumbnailSettings updated = ThumbnailSettings.generated(percentage);
         thumbnailRepository.setSettings(updated);
-        thumbnailValue.setText(thumbnailModeLabel(next));
+        updateOptionValues();
         adapter.refreshThumbnails();
         thumbnailRepository.prefetch(entries);
     }
 
-    private String thumbnailModeLabel(ThumbnailSettings.Mode mode) {
-        switch (mode) {
-            case GENERATED_25:
-                return getString(R.string.thumbnail_generated_25);
-            case GENERATED_50:
-                return getString(R.string.thumbnail_generated_50);
-            case GENERATED_75:
-                return getString(R.string.thumbnail_generated_75);
-            case SERVER:
-            default:
-                return getString(R.string.thumbnail_server);
-        }
+    private void setPercentSelected(Button button, boolean selected) {
+        button.setSelected(selected);
     }
 
     private void scanThumbnailTree(boolean regenerate) {

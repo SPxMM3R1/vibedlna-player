@@ -13,6 +13,10 @@
     <string name="remote_folder_error">No se pudo leer la carpeta del servidor DLNA.</string>
     <string name="empty_remote_folder">Esta carpeta no contiene videos ni subcarpetas.</string>
     <string name="options">Opciones</string>
+    <string name="library_section">BIBLIOTECA</string>
+    <string name="thumbnail_section">MINIATURAS</string>
+    <string name="thumbnail_use_server">Usar miniatura del servidor</string>
+    <string name="thumbnail_frame_position">Fotograma generado</string>
     <string name="dlna_server">Servidor DLNA</string>
     <string name="select_server">Seleccionar servidor</string>
     <string name="search_servers">Buscar servidores</string>
@@ -39,7 +43,7 @@
     <string name="thumbnail_clear_description">Se volverán a cargar o generar cuando sean necesarias.</string>
     <string name="cancel">Cancelar</string>
     <string name="delete">Borrar</string>
-    <string name="privacy_note">El progreso de reproducción no se guarda</string>
+    <string name="privacy_note">La posicion se conserva temporalmente durante una hora</string>
     <string name="options_hint">OK  Seleccionar     Atrás  Cerrar</string>
     <string name="exit_dialog_title">¿Salir de VibeDLNA Player?</string>
     <string name="stay_watching">Seguir explorando</string>

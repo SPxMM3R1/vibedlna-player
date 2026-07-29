@@ -25,7 +25,7 @@ final class PlaybackUiFormatter {
         long remaining = Math.max(0L, durationMs - Math.max(0L, positionMs));
         String value = new SimpleDateFormat("HH:mm", locale)
                 .format(new Date(nowMs + remaining));
-        return "Terminará a las " + value;
+        return "Terminar\u00e1 a las " + value;
     }
 
     static String friendlyCodec(String mimeType, String codecs) {
@@ -44,6 +44,6 @@ final class PlaybackUiFormatter {
         if (source.contains("aac") || source.contains("mp4a") || source.contains("latm")) {
             return "AAC";
         }
-        return "—";
+        return "\u2014";
     }
 }

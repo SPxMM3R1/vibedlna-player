@@ -14,6 +14,18 @@ final class ThumbnailSettings {
         this.mode = mode == null ? Mode.SERVER : mode;
     }
 
+    static ThumbnailSettings generated(int percentage) {
+        switch (percentage) {
+            case 25:
+                return new ThumbnailSettings(Mode.GENERATED_25);
+            case 75:
+                return new ThumbnailSettings(Mode.GENERATED_75);
+            case 50:
+            default:
+                return new ThumbnailSettings(Mode.GENERATED_50);
+        }
+    }
+
     Mode mode() {
         return mode;
     }

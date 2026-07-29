@@ -71,6 +71,7 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
         holder.thumbnail.setTag(token);
         holder.thumbnail.setImageDrawable(null);
         holder.title.setText(entry.getName());
+        holder.folderTitle.setText(entry.getName());
         holder.itemView.setOnClickListener(view -> listener.onEntrySelected(entry));
         holder.itemView.setOnFocusChangeListener((view, focused) -> view.animate()
                 .scaleX(focused ? 1.025f : 1f)
@@ -79,11 +80,15 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
                 .start());
 
         if (entry.isContainer()) {
-            holder.placeholder.setImageResource(R.drawable.ic_folder_large);
-            holder.placeholder.setVisibility(View.VISIBLE);
+            holder.thumbnailFrame.setVisibility(View.GONE);
+            holder.title.setVisibility(View.GONE);
+            holder.folderRow.setVisibility(View.VISIBLE);
             return;
         }
 
+        holder.thumbnailFrame.setVisibility(View.VISIBLE);
+        holder.title.setVisibility(View.VISIBLE);
+        holder.folderRow.setVisibility(View.GONE);
         holder.placeholder.setImageResource(R.drawable.ic_play_outline);
         holder.placeholder.setVisibility(View.VISIBLE);
         thumbnails.load(entry, bitmap -> {
@@ -106,12 +111,18 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
         final ImageView thumbnail;
         final ImageView placeholder;
         final TextView title;
+        final View thumbnailFrame;
+        final View folderRow;
+        final TextView folderTitle;
 
         VideoHolder(@NonNull View itemView) {
             super(itemView);
             thumbnail = itemView.findViewById(R.id.video_thumbnail);
             placeholder = itemView.findViewById(R.id.video_placeholder);
             title = itemView.findViewById(R.id.video_title);
+            thumbnailFrame = itemView.findViewById(R.id.thumbnail_frame);
+            folderRow = itemView.findViewById(R.id.folder_row);
+            folderTitle = itemView.findViewById(R.id.folder_title);
         }
     }
 }

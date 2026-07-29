@@ -16,12 +16,18 @@
         app:use_controller="false" />
 
     <LinearLayout
+        android:id="@+id/player_clock_panel"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|end"
         android:layout_marginTop="22dp"
         android:layout_marginEnd="34dp"
-        android:gravity="end"
+        android:background="@drawable/player_clock_panel_background"
+        android:gravity="center"
+        android:paddingStart="10dp"
+        android:paddingTop="7dp"
+        android:paddingEnd="10dp"
+        android:paddingBottom="7dp"
         android:orientation="vertical">
 
         <TextView
@@ -67,8 +73,8 @@
         android:clickable="false"
         android:focusable="false"
         android:max="1000"
-        android:paddingStart="6dp"
-        android:paddingEnd="6dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
         android:progressDrawable="@drawable/player_seek_progress"
         android:splitTrack="false"
         android:thumb="@drawable/player_seek_thumb"
@@ -106,7 +112,7 @@
             android:id="@+id/player_diagnostics"
             android:layout_width="230dp"
             android:layout_height="wrap_content"
-            android:gravity="end"
+            android:gravity="center"
             android:includeFontPadding="false"
             android:textColor="@color/muted"
             android:textSize="11sp" />

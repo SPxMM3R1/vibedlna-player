@@ -233,7 +233,7 @@ final class ThumbnailRepository {
             connection = (HttpURLConnection) new URL(artworkUri.toString()).openConnection();
             connection.setConnectTimeout(8_000);
             connection.setReadTimeout(15_000);
-            connection.setRequestProperty("User-Agent", "VibeDLNA/0.3.3");
+            connection.setRequestProperty("User-Agent", "VibeDLNA/0.3.6");
             connection.setRequestProperty("transferMode.dlna.org", "Interactive");
             connection.connect();
             if (connection.getResponseCode() < 200 || connection.getResponseCode() >= 300) {
@@ -263,7 +263,7 @@ final class ThumbnailRepository {
             String scheme = video.getUri().getScheme();
             if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
                 Map<String, String> headers = new HashMap<>();
-                headers.put("User-Agent", "VibeDLNA/0.3.3");
+                headers.put("User-Agent", "VibeDLNA/0.3.6");
                 headers.put("transferMode.dlna.org", "Streaming");
                 retriever.setDataSource(video.getUri().toString(), headers);
             } else {
