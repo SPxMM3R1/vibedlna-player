@@ -8,6 +8,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowInsets;
@@ -37,14 +38,17 @@ public final class PlayerActivity extends Activity {
     static final String EXTRA_URI = "video_uri";
     static final String EXTRA_TITLE = "video_title";
     static final String EXTRA_DURATION = "video_duration";
+    static final String EXTRA_RESUME_KEY = "video_resume_key";
     private static final long OVERLAY_TIMEOUT_MS = 4_500L;
     private static final long SEEK_STEP_MS = 10_000L;
     private static final long SEEK_FAST_STEP_MS = 30_000L;
+    private static final long RESUME_SAVE_INTERVAL_MS = 10_000L;
     private static final int PROGRESS_MAX = 1_000;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private PlayerView playerView;
     private View overlay;
+    private View clockPanel;
     private TextView clock;
     private TextView endingTime;
     private TextView title;
@@ -52,8 +56,19 @@ public final class PlayerActivity extends Activity {
     private TextView seekTime;
     private SeekBar seekBar;
     private ExoPlayer player;
+    private PlaybackResumeStore resumeStore;
+    private String resumeKey;
     private long declaredDurationMs;
     private boolean seekControlsRequested;
+    private long lastBackActionMs = -1_000L;
+
+    private final Runnable saveResumePoint = new Runnable() {
+        @Override
+        public void run() {
+            savePlaybackPosition();
+            if (player != null) mainHandler.postDelayed(this, RESUME_SAVE_INTERVAL_MS);
+        }
+    };
 
     private final Runnable updateProgress = new Runnable() {
         @Override
@@ -70,8 +85,8 @@ public final class PlayerActivity extends Activity {
         seekBar.setVisibility(View.GONE);
         seekTime.setVisibility(View.GONE);
         seekControlsRequested = false;
-        clock.setVisibility(View.GONE);
-        endingTime.setVisibility(View.GONE);
+        clockPanel.setVisibility(View.GONE);
+        mainHandler.removeCallbacks(hideOverlay);
         mainHandler.removeCallbacks(updateProgress);
     };
 
@@ -81,6 +96,7 @@ public final class PlayerActivity extends Activity {
         setContentView(R.layout.activity_player);
         playerView = findViewById(R.id.player_view);
         overlay = findViewById(R.id.player_overlay);
+        clockPanel = findViewById(R.id.player_clock_panel);
         clock = findViewById(R.id.player_clock);
         endingTime = findViewById(R.id.player_ending_time);
         title = findViewById(R.id.player_title);
@@ -93,6 +109,8 @@ public final class PlayerActivity extends Activity {
         String uriValue = getIntent().getStringExtra(EXTRA_URI);
         String titleValue = getIntent().getStringExtra(EXTRA_TITLE);
         declaredDurationMs = getIntent().getLongExtra(EXTRA_DURATION, 0L);
+        resumeKey = getIntent().getStringExtra(EXTRA_RESUME_KEY);
+        resumeStore = new PlaybackResumeStore(this);
         if (uriValue == null || uriValue.isBlank()) {
             finish();
             return;
@@ -112,6 +130,7 @@ public final class PlayerActivity extends Activity {
             public void onPlaybackStateChanged(int playbackState) {
                 updateDiagnostics();
                 if (playbackState == Player.STATE_READY) updatePlaybackUi();
+                if (playbackState == Player.STATE_ENDED) savePlaybackPosition();
             }
 
             @Override
@@ -126,9 +145,22 @@ public final class PlayerActivity extends Activity {
             }
         });
         player.setMediaItem(MediaItem.fromUri(uri));
-        player.seekTo(0);
+        PlaybackResumeStore.ResumePoint saved = resumeStore == null || resumeKey == null
+                ? null
+                : resumeStore.get(resumeKey, System.currentTimeMillis());
+        if (saved != null) {
+            long resumePosition = saved.positionMs;
+            if (declaredDurationMs <= 0L && saved.durationMs > 0L) {
+                declaredDurationMs = saved.durationMs;
+            }
+            player.seekTo(resumePosition);
+        } else {
+            player.seekTo(0L);
+        }
         player.prepare();
         player.play();
+        mainHandler.removeCallbacks(saveResumePoint);
+        mainHandler.postDelayed(saveResumePoint, RESUME_SAVE_INTERVAL_MS);
     }
 
     @OptIn(markerClass = UnstableApi.class)
@@ -137,8 +169,8 @@ public final class PlayerActivity extends Activity {
         Format video = player.getVideoFormat();
         Format audio = player.getAudioFormat();
         String resolution = video != null && video.width > 0 && video.height > 0
-                ? video.width + " × " + video.height
-                : "Resolución pendiente";
+                ? video.width + " \u00d7 " + video.height
+                : "Resoluci\u00f3n pendiente";
         String videoCodec = PlaybackUiFormatter.friendlyCodec(
                 video == null ? null : video.sampleMimeType,
                 video == null ? null : video.codecs
@@ -147,13 +179,13 @@ public final class PlayerActivity extends Activity {
                 audio == null ? null : audio.sampleMimeType,
                 audio == null ? null : audio.codecs
         );
-        diagnostics.setText(resolution + "\n" + videoCodec + " · " + audioCodec);
+        diagnostics.setText(resolution + "\n" + videoCodec + " \u00b7 " + audioCodec);
     }
 
     private void showOverlay(boolean keepVisible, boolean showSeekControls) {
         seekControlsRequested = showSeekControls;
         overlay.setVisibility(View.VISIBLE);
-        clock.setVisibility(View.VISIBLE);
+        clockPanel.setVisibility(View.VISIBLE);
         seekBar.setVisibility(showSeekControls ? View.VISIBLE : View.GONE);
         seekTime.setVisibility(showSeekControls ? View.VISIBLE : View.GONE);
         mainHandler.removeCallbacks(hideOverlay);
@@ -198,6 +230,9 @@ public final class PlayerActivity extends Activity {
         endingTime.setVisibility(
                 overlay.getVisibility() == View.VISIBLE ? View.VISIBLE : View.GONE
         );
+        clockPanel.setVisibility(
+                overlay.getVisibility() == View.VISIBLE ? View.VISIBLE : View.GONE
+        );
     }
 
     private void seekBy(long deltaMs) {
@@ -239,10 +274,22 @@ public final class PlayerActivity extends Activity {
                 showOverlay(false, false);
                 return true;
             }
+            if (keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE && player != null) {
+                player.pause();
+                savePlaybackPosition();
+                showOverlay(false, true);
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY && player != null) {
+                player.play();
+                showOverlay(false, true);
+                return true;
+            }
             if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE && player != null) {
                 if (player.isPlaying()) player.pause();
                 else player.play();
-                showOverlay(false, false);
+                savePlaybackPosition();
+                showOverlay(false, true);
                 return true;
             }
         }
@@ -259,6 +306,14 @@ public final class PlayerActivity extends Activity {
     }
 
     private void handleBackAction() {
+        long now = SystemClock.uptimeMillis();
+        if (now - lastBackActionMs < 250L) return;
+        lastBackActionMs = now;
+        if (overlay.getVisibility() == View.VISIBLE || clockPanel.getVisibility() == View.VISIBLE) {
+            hideOverlay.run();
+            return;
+        }
+        savePlaybackPosition();
         releasePlayer();
         finish();
     }
@@ -266,12 +321,18 @@ public final class PlayerActivity extends Activity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (!hasFocus && player != null) player.pause();
+        if (!hasFocus && player != null) {
+            player.pause();
+            savePlaybackPosition();
+        }
     }
 
     @Override
     protected void onPause() {
-        if (player != null) player.pause();
+        if (player != null) {
+            player.pause();
+            savePlaybackPosition();
+        }
         super.onPause();
     }
 
@@ -312,11 +373,25 @@ public final class PlayerActivity extends Activity {
     private void releasePlayer() {
         mainHandler.removeCallbacksAndMessages(null);
         if (player == null) return;
+        savePlaybackPosition();
         player.pause();
         player.stop();
         playerView.setPlayer(null);
         player.release();
         player = null;
+    }
+
+    private void savePlaybackPosition() {
+        if (resumeStore == null || resumeKey == null || resumeKey.isBlank() || player == null) {
+            return;
+        }
+        long duration = playbackDuration();
+        resumeStore.save(
+                resumeKey,
+                Math.max(0L, player.getCurrentPosition()),
+                duration,
+                System.currentTimeMillis()
+        );
     }
 
     @Override

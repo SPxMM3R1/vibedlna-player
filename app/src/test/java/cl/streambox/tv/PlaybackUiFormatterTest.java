@@ -24,7 +24,7 @@ public final class PlaybackUiFormatterTest {
         try {
             TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
             assertEquals(
-                    "Terminará a las 22:30",
+                    "Terminar\u00e1 a las 22:30",
                     PlaybackUiFormatter.endingAt(
                             21L * 3_600_000L,
                             0L,
