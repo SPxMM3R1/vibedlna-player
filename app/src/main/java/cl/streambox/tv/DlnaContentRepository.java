@@ -19,8 +19,15 @@ import org.jupnp.support.model.item.Item;
 import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 final class DlnaContentRepository {
     static final class BrowseResult {
@@ -33,8 +40,14 @@ final class DlnaContentRepository {
         }
     }
 
-    private static final int PAGE_SIZE = 200;
+    /*
+     * VibeDLNA v1.0.1 may create a cached thumbnail while building a Browse
+     * response. Keep requests small enough that one slow Windows thumbnail
+     * provider does not make the whole folder hit jUPnP's HTTP timeout.
+     */
+    private static final int PAGE_SIZE = 8;
     private static final int MAX_ITEMS = 2_000;
+    private static final long BROWSE_TIMEOUT_MS = 15_000L;
 
     private final DlnaDiscovery discovery;
 
@@ -44,19 +57,50 @@ final class DlnaContentRepository {
 
     BrowseResult browse(DlnaServer server, String objectId) throws Exception {
         List<VideoItem> result = new ArrayList<>();
+        Set<String> seenIds = new HashSet<>();
         long start = 0L;
         long total = Long.MAX_VALUE;
         do {
-            Page page = browsePage(
-                    server.getContentDirectoryService(),
-                    objectId,
-                    BrowseFlag.DIRECT_CHILDREN,
-                    start,
-                    PAGE_SIZE
-            );
-            addEntries(page.content, result, server.getUdn());
-            if (page.returned <= 0L) break;
-            start += page.returned;
+            Page page;
+            try {
+                page = browsePage(
+                        server.getContentDirectoryService(),
+                        objectId,
+                        BrowseFlag.DIRECT_CHILDREN,
+                        start,
+                        PAGE_SIZE
+                );
+                addEntries(page.content, result, server.getUdn(), seenIds);
+            } catch (Exception pageFailure) {
+                // A later page can fail because one video thumbnail is slow or
+                // malformed. Retry the failed window item-by-item. This also
+                // gives the first page a chance to load if only one video is
+                // responsible for the slow response.
+                long recoveryEnd = recoveryEnd(start, total);
+                long recoveredItems = 0L;
+                for (long itemStart = start; itemStart < recoveryEnd; itemStart++) {
+                    try {
+                        Page itemPage = browsePage(
+                                server.getContentDirectoryService(),
+                                objectId,
+                                BrowseFlag.DIRECT_CHILDREN,
+                                itemStart,
+                                1L
+                        );
+                        addEntries(itemPage.content, result, server.getUdn(), seenIds);
+                        recoveredItems += itemPage.returned;
+                        if (itemPage.total > 0L) total = itemPage.total;
+                    } catch (Exception ignored) {
+                        // One broken item must not hide the remaining folder.
+                    }
+                }
+                if (recoveredItems == 0L) throw pageFailure;
+                start = recoveryEnd;
+                continue;
+            }
+            long nextStart = advanceBrowseStart(start, page.returned);
+            if (nextStart == start) break;
+            start = nextStart;
             if (page.total > 0L) total = page.total;
         } while (start < total && result.size() < MAX_ITEMS);
 
@@ -135,21 +179,55 @@ final class DlnaContentRepository {
             }
         };
 
-        discovery.execute(callback);
+        Future<?> request = discovery.execute(callback);
+        try {
+            request.get(BROWSE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException interrupted) {
+            request.cancel(true);
+            Thread.currentThread().interrupt();
+            throw new IOException("La lectura de la carpeta DLNA fue interrumpida.", interrupted);
+        } catch (TimeoutException timeout) {
+            request.cancel(true);
+            throw new IOException("Tiempo de espera agotado al leer la carpeta del servidor DLNA.", timeout);
+        } catch (CancellationException cancelled) {
+            throw new IOException("La lectura de la carpeta del servidor DLNA fue cancelada.", cancelled);
+        } catch (ExecutionException execution) {
+            Throwable cause = execution.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw new IOException("Falló la lectura de la carpeta del servidor DLNA.", cause);
+        }
         if (page.failure != null) throw page.failure;
-        if (page.content == null) page.content = new DIDLContent();
+        if (page.content == null) {
+            throw new IOException("El servidor DLNA no devolvió contenido para Browse.");
+        }
         return page;
+    }
+
+    static long advanceBrowseStart(long start, long returned) {
+        if (returned <= 0L) return start;
+        long next = start + returned;
+        return next <= start ? start : next;
+    }
+
+    static long recoveryEnd(long start, long total) {
+        long candidate = start + PAGE_SIZE;
+        if (candidate < start) candidate = Long.MAX_VALUE;
+        return total > 0L && total < Long.MAX_VALUE
+                ? Math.min(total, candidate)
+                : candidate;
     }
 
     private static void addEntries(
             DIDLContent content,
             List<VideoItem> result,
-            String serverUdn
+            String serverUdn,
+            Set<String> seenIds
     ) {
         for (Container container : content.getContainers()) {
             if (result.size() >= MAX_ITEMS) return;
             String id = container.getId();
             if (id == null || id.isBlank()) continue;
+            if (!seenIds.add("container:" + id)) continue;
             String title = container.getTitle();
             result.add(VideoItem.container(
                     serverUdn,
@@ -164,10 +242,12 @@ final class DlnaContentRepository {
             Resource resource = videoResource(item);
             if (resource == null) continue;
             String id = item.getId();
+            String stableId = id == null || id.isBlank() ? resource.uri.toString() : id;
+            if (!seenIds.add("item:" + stableId)) continue;
             String title = item.getTitle();
             result.add(VideoItem.video(
                     serverUdn,
-                    id == null || id.isBlank() ? resource.uri.toString() : id,
+                    stableId,
                     item.getParentID(),
                     title == null || title.isBlank() ? "Video" : title,
                     resource.uri,

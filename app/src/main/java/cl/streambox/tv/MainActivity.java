@@ -15,6 +15,7 @@ import android.os.Looper;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -46,6 +47,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
+    private static final String TAG = "VibeDlnaMain";
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService dlnaExecutor = Executors.newFixedThreadPool(2);
     private final ExecutorService updateExecutor = Executors.newSingleThreadExecutor();
@@ -333,7 +335,8 @@ public final class MainActivity extends Activity {
             DlnaContentRepository.BrowseResult result;
             try {
                 result = contentRepository.browse(server, containerId);
-            } catch (Exception ignored) {
+            } catch (Exception error) {
+                Log.w(TAG, "No se pudo leer la carpeta DLNA " + containerId, error);
                 result = null;
             }
             DlnaContentRepository.BrowseResult loaded = result;
