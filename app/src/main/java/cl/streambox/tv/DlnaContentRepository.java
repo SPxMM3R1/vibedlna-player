@@ -184,10 +184,34 @@ final class DlnaContentRepository {
                     DIDLObject.Property.UPNP.ALBUM_ART_URI.class
             );
             if (value == null) return null;
-            URI resolved = value.isAbsolute()
-                    ? value
-                    : URI.create(mediaUri.toString()).resolve(value);
-            return Uri.parse(resolved.toString());
+            return resolveArtworkUri(value, mediaUri);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    static Uri resolveArtworkUri(URI artworkUri, Uri mediaUri) {
+        if (artworkUri == null || mediaUri == null) return null;
+        try {
+            URI resolved = artworkUri;
+            if (!artworkUri.isAbsolute()) {
+                URI media = URI.create(mediaUri.toString());
+                URI serverOrigin = new URI(
+                        media.getScheme(),
+                        media.getAuthority(),
+                        "/",
+                        null,
+                        null
+                );
+                resolved = serverOrigin.resolve(artworkUri).normalize();
+            }
+            String scheme = resolved.getScheme();
+            if (!"http".equalsIgnoreCase(scheme)
+                    && !"https".equalsIgnoreCase(scheme)) {
+                return null;
+            }
+            String value = resolved.toString();
+            return value.isBlank() ? null : Uri.parse(value);
         } catch (Exception ignored) {
             return null;
         }

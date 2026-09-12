@@ -6,6 +6,11 @@ import org.junit.Test;
 
 public final class CardLayoutMathTest {
     @Test
+    public void calculatesCardWidthInsideRecyclerViewContent() {
+        assertEquals(451, CardLayoutMath.cardWidth(1920, 30, 30, 7, 4, 180));
+    }
+
+    @Test
     public void calculatesExactSixteenByNineHeightAfterCardPadding() {
         assertEquals(162, CardLayoutMath.thumbnailHeight(294, 6));
         assertEquals(180, CardLayoutMath.thumbnailHeight(326, 6));
