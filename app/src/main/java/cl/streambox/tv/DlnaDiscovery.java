@@ -28,6 +28,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Future;
 
 final class DlnaDiscovery implements AutoCloseable {
     private static final long SEARCH_INTERVAL_MS = 5L * 60L * 1_000L;
@@ -164,7 +165,7 @@ final class DlnaDiscovery implements AutoCloseable {
         return snapshot();
     }
 
-    void execute(ActionCallback callback) throws IOException {
+    Future<?> execute(ActionCallback callback) throws IOException {
         AndroidUpnpService service;
         synchronized (monitor) {
             service = upnpService;
@@ -172,8 +173,9 @@ final class DlnaDiscovery implements AutoCloseable {
         if (service == null) {
             throw new IOException("El servicio UPnP no está disponible.");
         }
-        callback.setControlPoint(service.getControlPoint());
-        callback.run();
+        // ControlPoint.execute() owns jUPnP's executor and delivers Browse's
+        // received/failure callbacks asynchronously on that executor.
+        return service.getControlPoint().execute(callback);
     }
 
     private AndroidUpnpService awaitService(long deadline) {
