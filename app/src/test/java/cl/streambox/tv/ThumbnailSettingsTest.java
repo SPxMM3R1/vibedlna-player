@@ -34,51 +34,27 @@ public final class ThumbnailSettingsTest {
     }
 
     @Test
-    public void serverArtworkCacheIdentityUsesAdvertisedThumbnailPath() {
-        VideoItem first = VideoItem.video(
-                "uuid:server",
-                "video-42",
-                "0",
-                "Video",
-                android.net.Uri.parse("http://192.168.1.20:43123/media/video/file.mp4"),
-                android.net.Uri.parse("http://192.168.1.20:43123/thumbnail/first.jpg"),
-                "video/mp4",
-                1_000L
-        );
-        VideoItem sameThumbnailOnNewServerAddress = VideoItem.video(
-                "uuid:server",
-                "video-42",
-                "0",
-                "Video",
-                android.net.Uri.parse("http://192.168.1.20:43124/media/video/file.mp4"),
-                android.net.Uri.parse("http://192.168.1.20:43124/thumbnail/first.jpg"),
-                "video/mp4",
-                1_000L
-        );
-        VideoItem second = VideoItem.video(
-                "uuid:server",
-                "video-42",
-                "0",
-                "Video",
-                android.net.Uri.parse("http://192.168.1.20:43124/media/video/file.mp4"),
-                android.net.Uri.parse("http://192.168.1.20:43124/thumbnail/second.jpg"),
-                "video/mp4",
-                1_000L
-        );
-        ThumbnailSettings server = new ThumbnailSettings(ThumbnailSettings.Mode.SERVER);
+    public void serverArtworkIdentityUsesAdvertisedThumbnailPath() {
         assertEquals(
-                ThumbnailRepository.cacheName(first, server),
-                ThumbnailRepository.cacheName(sameThumbnailOnNewServerAddress, server)
+                "/thumbnail/first.jpg",
+                ThumbnailRepository.serverArtworkIdentity(
+                        "http://192.168.1.20:43123/thumbnail/first.jpg"
+                )
         );
         assertNotEquals(
-                ThumbnailRepository.cacheName(first, server),
-                ThumbnailRepository.cacheName(second, server)
+                ThumbnailRepository.serverArtworkIdentity(
+                        "http://192.168.1.20:43123/thumbnail/first.jpg"
+                ),
+                ThumbnailRepository.serverArtworkIdentity(
+                        "http://192.168.1.20:43124/thumbnail/second.jpg"
+                )
         );
         assertNotEquals(
-                ThumbnailRepository.cacheName(first, server),
-                ThumbnailRepository.cacheName(
-                        first,
-                        new ThumbnailSettings(ThumbnailSettings.Mode.GENERATED_50)
+                ThumbnailRepository.serverArtworkIdentity(
+                        "http://192.168.1.20:43123/thumbnail/first.jpg"
+                ),
+                ThumbnailRepository.serverArtworkIdentity(
+                        "http://192.168.1.20:43123/thumbnail/first.jpg?version=2"
                 )
         );
     }

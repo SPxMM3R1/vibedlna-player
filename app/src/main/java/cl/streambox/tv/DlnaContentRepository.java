@@ -184,13 +184,14 @@ final class DlnaContentRepository {
                     DIDLObject.Property.UPNP.ALBUM_ART_URI.class
             );
             if (value == null) return null;
-            return resolveArtworkUri(value, mediaUri);
+            URI resolved = resolveArtworkUri(value, URI.create(mediaUri.toString()));
+            return resolved == null ? null : Uri.parse(resolved.toString());
         } catch (Exception ignored) {
             return null;
         }
     }
 
-    static Uri resolveArtworkUri(URI artworkUri, Uri mediaUri) {
+    static URI resolveArtworkUri(URI artworkUri, URI mediaUri) {
         if (artworkUri == null || mediaUri == null) return null;
         try {
             URI resolved = artworkUri;
@@ -210,8 +211,7 @@ final class DlnaContentRepository {
                     && !"https".equalsIgnoreCase(scheme)) {
                 return null;
             }
-            String value = resolved.toString();
-            return value.isBlank() ? null : Uri.parse(value);
+            return resolved.toString().isBlank() ? null : resolved;
         } catch (Exception ignored) {
             return null;
         }

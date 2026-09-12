@@ -14,6 +14,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -488,10 +489,19 @@ final class ThumbnailRepository {
     }
 
     private static String serverArtworkIdentity(Uri artworkUri) {
-        String path = artworkUri.getEncodedPath();
-        if (path == null || path.isBlank()) return artworkUri.toString();
-        String query = artworkUri.getEncodedQuery();
-        return query == null || query.isBlank() ? path : path + "?" + query;
+        return serverArtworkIdentity(artworkUri.toString());
+    }
+
+    static String serverArtworkIdentity(String artworkUrl) {
+        try {
+            URI uri = URI.create(artworkUrl);
+            String path = uri.getRawPath();
+            if (path == null || path.isBlank()) return artworkUrl;
+            String query = uri.getRawQuery();
+            return query == null || query.isBlank() ? path : path + "?" + query;
+        } catch (Exception ignored) {
+            return artworkUrl;
+        }
     }
 
     private static String legacyCacheName(VideoItem video) {
