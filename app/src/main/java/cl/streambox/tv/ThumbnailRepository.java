@@ -14,14 +14,17 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -33,6 +36,9 @@ final class ThumbnailRepository {
     private static final String TAG = "VibeThumbnails";
     private static final int WIDTH = 480;
     private static final int HEIGHT = 270;
+    private static final String USER_AGENT = "VibeDLNA/0.3.8";
+    private static final String SERVER_FALLBACK_VARIANT = "server-fallback-50";
+    private static final String SERVER_ARTWORK_VARIANT = "server-artwork-";
 
     private final Context context;
     private final File cacheDirectory;
@@ -87,11 +93,16 @@ final class ThumbnailRepository {
         String cacheName = cacheName(video, requestSettings);
         int requestEpoch;
         int requestRevision;
+        String fallbackCacheName = serverFallbackCacheName(video);
+        int fallbackRevision;
         synchronized (diskLock) {
             requestEpoch = cacheEpoch;
             requestRevision = revision(cacheName);
+            fallbackRevision = revision(fallbackCacheName);
         }
         String workKey = cacheName + ":" + requestEpoch + ":" + requestRevision;
+        boolean hasServerArtwork = requestSettings.prefersServerArtwork()
+                && video.getArtworkUri() != null;
         Bitmap memoryBitmap;
         synchronized (memoryCache) {
             memoryBitmap = memoryCache.get(workKey);
@@ -118,9 +129,11 @@ final class ThumbnailRepository {
                     requestSettings,
                     cacheName,
                     requestEpoch,
-                    requestRevision
+                    requestRevision,
+                    fallbackCacheName,
+                    fallbackRevision
             );
-            if (bitmap != null) {
+            if (bitmap != null && !hasServerArtwork) {
                 synchronized (memoryCache) {
                     memoryCache.put(workKey, bitmap);
                 }
@@ -145,8 +158,12 @@ final class ThumbnailRepository {
     }
 
     void evict(VideoItem video) {
+        Set<String> names = new HashSet<>();
         for (ThumbnailSettings.Mode mode : ThumbnailSettings.Mode.values()) {
-            String name = cacheName(video, new ThumbnailSettings(mode));
+            names.add(cacheName(video, new ThumbnailSettings(mode)));
+        }
+        names.add(serverFallbackCacheName(video));
+        for (String name : names) {
             synchronized (diskLock) {
                 revisions.put(name, revision(name) + 1);
                 File file = new File(cacheDirectory, name);
@@ -189,7 +206,9 @@ final class ThumbnailRepository {
             ThumbnailSettings requestSettings,
             String cacheName,
             int requestEpoch,
-            int requestRevision
+            int requestRevision,
+            String fallbackCacheName,
+            int fallbackRevision
     ) {
         File cached = new File(cacheDirectory, cacheName);
         Bitmap bitmap;
@@ -200,7 +219,9 @@ final class ThumbnailRepository {
         }
         if (bitmap != null) return bitmap;
 
-        if (requestSettings.prefersServerArtwork() && video.getArtworkUri() != null) {
+        boolean hasServerArtwork = requestSettings.prefersServerArtwork()
+                && video.getArtworkUri() != null;
+        if (hasServerArtwork) {
             bitmap = downloadArtwork(video.getArtworkUri());
             if (bitmap != null) {
                 Bitmap cropped = centerCrop(bitmap, WIDTH, HEIGHT);
@@ -208,6 +229,39 @@ final class ThumbnailRepository {
                 saveIfCurrent(cached, cropped, cacheName, requestEpoch, requestRevision);
                 return cropped;
             }
+
+            File fallback = new File(cacheDirectory, fallbackCacheName);
+            synchronized (diskLock) {
+                bitmap = requestIsCurrent(
+                        fallbackCacheName,
+                        requestEpoch,
+                        fallbackRevision
+                ) ? decode(fallback) : null;
+            }
+            if (bitmap != null) return bitmap;
+
+            if (requestSettings.generatedPercentage() == 50) {
+                File legacy = new File(legacyCacheDirectory, legacyCacheName(video));
+                bitmap = decode(legacy);
+                if (bitmap != null) {
+                    saveIfCurrent(
+                            fallback,
+                            bitmap,
+                            fallbackCacheName,
+                            requestEpoch,
+                            fallbackRevision
+                    );
+                    return bitmap;
+                }
+            }
+            return createFrame(
+                    video,
+                    requestSettings.generatedPercentage(),
+                    fallback,
+                    fallbackCacheName,
+                    requestEpoch,
+                    fallbackRevision
+            );
         }
         if (requestSettings.generatedPercentage() == 50) {
             File legacy = new File(legacyCacheDirectory, legacyCacheName(video));
@@ -233,7 +287,7 @@ final class ThumbnailRepository {
             connection = (HttpURLConnection) new URL(artworkUri.toString()).openConnection();
             connection.setConnectTimeout(8_000);
             connection.setReadTimeout(15_000);
-            connection.setRequestProperty("User-Agent", "VibeDLNA/0.3.6");
+            connection.setRequestProperty("User-Agent", USER_AGENT);
             connection.setRequestProperty("transferMode.dlna.org", "Interactive");
             connection.connect();
             if (connection.getResponseCode() < 200 || connection.getResponseCode() >= 300) {
@@ -263,7 +317,7 @@ final class ThumbnailRepository {
             String scheme = video.getUri().getScheme();
             if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
                 Map<String, String> headers = new HashMap<>();
-                headers.put("User-Agent", "VibeDLNA/0.3.6");
+                headers.put("User-Agent", USER_AGENT);
                 headers.put("transferMode.dlna.org", "Streaming");
                 retriever.setDataSource(video.getUri().toString(), headers);
             } else {
@@ -414,11 +468,40 @@ final class ThumbnailRepository {
     }
 
     static String cacheName(VideoItem video, ThumbnailSettings settings) {
+        String variant = settings.cacheVariant();
+        if (settings.prefersServerArtwork() && video.getArtworkUri() != null) {
+            variant = SERVER_ARTWORK_VARIANT
+                    + sha256(serverArtworkIdentity(video.getArtworkUri()));
+        }
         return ThumbnailCacheKey.name(
                 video.getServerUdn(),
                 video.getId(),
-                settings.cacheVariant()
+                variant
         );
+    }
+
+    private static String serverFallbackCacheName(VideoItem video) {
+        return ThumbnailCacheKey.name(
+                video.getServerUdn(),
+                video.getId(),
+                SERVER_FALLBACK_VARIANT
+        );
+    }
+
+    private static String serverArtworkIdentity(Uri artworkUri) {
+        return serverArtworkIdentity(artworkUri.toString());
+    }
+
+    static String serverArtworkIdentity(String artworkUrl) {
+        try {
+            URI uri = URI.create(artworkUrl);
+            String path = uri.getRawPath();
+            if (path == null || path.isBlank()) return artworkUrl;
+            String query = uri.getRawQuery();
+            return query == null || query.isBlank() ? path : path + "?" + query;
+        } catch (Exception ignored) {
+            return artworkUrl;
+        }
     }
 
     private static String legacyCacheName(VideoItem video) {

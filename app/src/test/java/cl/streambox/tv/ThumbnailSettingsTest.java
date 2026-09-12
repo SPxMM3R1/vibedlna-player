@@ -32,4 +32,30 @@ public final class ThumbnailSettingsTest {
         assertEquals(first, second);
         assertNotEquals(first, changedMode);
     }
+
+    @Test
+    public void serverArtworkIdentityUsesAdvertisedThumbnailPath() {
+        assertEquals(
+                "/thumbnail/first.jpg",
+                ThumbnailRepository.serverArtworkIdentity(
+                        "http://192.168.1.20:43123/thumbnail/first.jpg"
+                )
+        );
+        assertNotEquals(
+                ThumbnailRepository.serverArtworkIdentity(
+                        "http://192.168.1.20:43123/thumbnail/first.jpg"
+                ),
+                ThumbnailRepository.serverArtworkIdentity(
+                        "http://192.168.1.20:43124/thumbnail/second.jpg"
+                )
+        );
+        assertNotEquals(
+                ThumbnailRepository.serverArtworkIdentity(
+                        "http://192.168.1.20:43123/thumbnail/first.jpg"
+                ),
+                ThumbnailRepository.serverArtworkIdentity(
+                        "http://192.168.1.20:43123/thumbnail/first.jpg?version=2"
+                )
+        );
+    }
 }

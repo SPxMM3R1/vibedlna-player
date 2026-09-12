@@ -22,6 +22,10 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
     private final ThumbnailRepository thumbnails;
     private final Listener listener;
 
+    private static final int GRID_COLUMNS = 4;
+    private static final int GRID_ITEM_SPACING_DP = 7;
+    private static final int MINIMUM_CARD_WIDTH_DP = 180;
+
     VideoAdapter(ThumbnailRepository thumbnails, Listener listener) {
         this.thumbnails = thumbnails;
         this.listener = listener;
@@ -50,9 +54,16 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
                 .inflate(R.layout.item_video, parent, false);
         int parentWidth = parent.getMeasuredWidth();
         if (parentWidth <= 0) {
-            parentWidth = parent.getResources().getDisplayMetrics().widthPixels - dp(parent, 60);
+            parentWidth = parent.getResources().getDisplayMetrics().widthPixels;
         }
-        int width = Math.max(dp(parent, 180), (parentWidth - dp(parent, 56)) / 4);
+        int width = CardLayoutMath.cardWidth(
+                parentWidth,
+                parent.getPaddingLeft(),
+                parent.getPaddingRight(),
+                dp(parent, GRID_ITEM_SPACING_DP),
+                GRID_COLUMNS,
+                dp(parent, MINIMUM_CARD_WIDTH_DP)
+        );
         view.setLayoutParams(new RecyclerView.LayoutParams(
                 width,
                 ViewGroup.LayoutParams.WRAP_CONTENT

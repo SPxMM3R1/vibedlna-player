@@ -15,7 +15,7 @@
     <string name="options">Opciones</string>
     <string name="library_section">BIBLIOTECA</string>
     <string name="thumbnail_section">MINIATURAS</string>
-    <string name="thumbnail_use_server">Usar miniatura del servidor</string>
+    <string name="thumbnail_use_server">Preferir miniatura del servidor</string>
     <string name="thumbnail_frame_position">Fotograma generado</string>
     <string name="dlna_server">Servidor DLNA</string>
     <string name="select_server">Seleccionar servidor</string>
