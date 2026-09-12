@@ -35,6 +35,7 @@ final class ThumbnailRepository {
     private static final String TAG = "VibeThumbnails";
     private static final int WIDTH = 480;
     private static final int HEIGHT = 270;
+    private static final String USER_AGENT = "VibeDLNA/0.3.8";
     private static final String SERVER_FALLBACK_VARIANT = "server-fallback-50";
     private static final String SERVER_ARTWORK_VARIANT = "server-artwork-";
 
@@ -285,7 +286,7 @@ final class ThumbnailRepository {
             connection = (HttpURLConnection) new URL(artworkUri.toString()).openConnection();
             connection.setConnectTimeout(8_000);
             connection.setReadTimeout(15_000);
-            connection.setRequestProperty("User-Agent", "VibeDLNA/" + BuildConfig.VERSION_NAME);
+            connection.setRequestProperty("User-Agent", USER_AGENT);
             connection.setRequestProperty("transferMode.dlna.org", "Interactive");
             connection.connect();
             if (connection.getResponseCode() < 200 || connection.getResponseCode() >= 300) {
@@ -315,7 +316,7 @@ final class ThumbnailRepository {
             String scheme = video.getUri().getScheme();
             if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
                 Map<String, String> headers = new HashMap<>();
-                headers.put("User-Agent", "VibeDLNA/" + BuildConfig.VERSION_NAME);
+                headers.put("User-Agent", USER_AGENT);
                 headers.put("transferMode.dlna.org", "Streaming");
                 retriever.setDataSource(video.getUri().toString(), headers);
             } else {
