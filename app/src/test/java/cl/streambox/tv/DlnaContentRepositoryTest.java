@@ -94,4 +94,22 @@ public final class DlnaContentRepositoryTest {
                 URI.create("http://192.168.1.20:43123/media/video/file.mp4")
         ));
     }
+
+    @Test
+    public void derivesOnDemandThumbnailFromVibeDlnaMediaUri() {
+        URI thumbnail = DlnaContentRepository.deriveThumbnailRequestUri(
+                URI.create("http://192.168.1.20:43123/media/F%3Avideo/video.mp4")
+        );
+        assertEquals(
+                "http://192.168.1.20:43123/thumbnail/request/F%3Avideo.jpg",
+                thumbnail.toString()
+        );
+    }
+
+    @Test
+    public void doesNotDeriveThumbnailForUnrelatedMediaUri() {
+        assertNull(DlnaContentRepository.deriveThumbnailRequestUri(
+                Uri.parse("http://192.168.1.20:43123/content/video.mp4")
+        ));
+    }
 }
