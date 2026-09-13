@@ -44,7 +44,8 @@ final class ThumbnailRepository {
     private final File cacheDirectory;
     private final File legacyCacheDirectory;
     private final Handler mainHandler;
-    private final ExecutorService executor = Executors.newFixedThreadPool(2);
+    private final Object executorLock = new Object();
+    private ExecutorService executor = Executors.newFixedThreadPool(2);
     private final Map<String, List<Callback>> inFlight = new HashMap<>();
     private final Map<String, Integer> revisions = new HashMap<>();
     private final Object diskLock = new Object();
@@ -58,6 +59,7 @@ final class ThumbnailRepository {
 
     private volatile ThumbnailSettings settings;
     private volatile boolean destroyed;
+    private volatile boolean paused;
     private int cacheEpoch;
 
     ThumbnailRepository(
@@ -123,37 +125,76 @@ final class ThumbnailRepository {
             inFlight.put(workKey, callbacks);
         }
 
-        executor.submit(() -> {
-            Bitmap bitmap = loadOrCreate(
-                    video,
-                    requestSettings,
-                    cacheName,
-                    requestEpoch,
-                    requestRevision,
-                    fallbackCacheName,
-                    fallbackRevision
-            );
-            if (bitmap != null && !hasServerArtwork) {
-                synchronized (memoryCache) {
-                    memoryCache.put(workKey, bitmap);
+        ExecutorService worker;
+        synchronized (executorLock) {
+            if (paused || destroyed) {
+                synchronized (inFlight) {
+                    inFlight.remove(workKey);
                 }
+                return;
             }
-            List<Callback> callbacks;
-            synchronized (inFlight) {
-                callbacks = inFlight.remove(workKey);
-            }
-            if (callbacks == null || callbacks.isEmpty()) return;
-            Bitmap loaded = bitmap;
-            mainHandler.post(() -> {
-                if (destroyed) return;
-                for (Callback item : callbacks) item.onLoaded(loaded);
+            worker = executor;
+        }
+        try {
+            worker.submit(() -> {
+                if (paused || destroyed) return;
+                Bitmap bitmap = loadOrCreate(
+                        video,
+                        requestSettings,
+                        cacheName,
+                        requestEpoch,
+                        requestRevision,
+                        fallbackCacheName,
+                        fallbackRevision
+                );
+                if (paused || destroyed) return;
+                if (bitmap != null && !hasServerArtwork) {
+                    synchronized (memoryCache) {
+                        memoryCache.put(workKey, bitmap);
+                    }
+                }
+                List<Callback> callbacks;
+                synchronized (inFlight) {
+                    callbacks = inFlight.remove(workKey);
+                }
+                if (callbacks == null || callbacks.isEmpty()) return;
+                Bitmap loaded = bitmap;
+                mainHandler.post(() -> {
+                    if (destroyed || paused) return;
+                    for (Callback item : callbacks) item.onLoaded(loaded);
+                });
             });
-        });
+        } catch (java.util.concurrent.RejectedExecutionException rejected) {
+            synchronized (inFlight) {
+                inFlight.remove(workKey);
+            }
+        }
     }
 
     void prefetch(List<VideoItem> videos) {
+        if (paused || destroyed) return;
         for (VideoItem video : videos) {
             if (!video.isContainer()) load(video, null);
+        }
+    }
+
+    void pause() {
+        paused = true;
+        synchronized (executorLock) {
+            executor.shutdownNow();
+        }
+        synchronized (inFlight) {
+            inFlight.clear();
+        }
+    }
+
+    void resume() {
+        synchronized (executorLock) {
+            if (destroyed) return;
+            if (executor.isShutdown()) {
+                executor = Executors.newFixedThreadPool(2);
+            }
+            paused = false;
         }
     }
 
@@ -192,7 +233,9 @@ final class ThumbnailRepository {
 
     void destroy() {
         destroyed = true;
-        executor.shutdownNow();
+        synchronized (executorLock) {
+            executor.shutdownNow();
+        }
         synchronized (inFlight) {
             inFlight.clear();
         }

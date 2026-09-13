@@ -762,12 +762,16 @@ public final class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        thumbnailRepository.resume();
+        adapter.refreshThumbnails();
+        thumbnailRepository.prefetch(entries);
         if (appUpdater != null) appUpdater.onHostResume();
         enterImmersiveMode();
     }
 
     @Override
     protected void onPause() {
+        thumbnailRepository.pause();
         if (appUpdater != null) appUpdater.onHostPause();
         super.onPause();
     }
