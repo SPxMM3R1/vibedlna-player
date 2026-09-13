@@ -263,12 +263,52 @@ final class DlnaContentRepository {
             URI value = item.getFirstPropertyValue(
                     DIDLObject.Property.UPNP.ALBUM_ART_URI.class
             );
-            if (value == null) return null;
-            URI resolved = resolveArtworkUri(value, URI.create(mediaUri.toString()));
-            return resolved == null ? null : Uri.parse(resolved.toString());
+            if (value != null) {
+                URI resolved = resolveArtworkUri(value, URI.create(mediaUri.toString()));
+                if (resolved != null) return Uri.parse(resolved.toString());
+            }
+        } catch (Exception ignored) {
+        }
+        // VibeDLNA can expose the media resource before its thumbnail is ready.
+        // Keep a stable request URL so the server can generate/return it on demand.
+        return deriveThumbnailRequestUri(mediaUri);
+    }
+
+    static Uri deriveThumbnailRequestUri(Uri mediaUri) {
+        if (mediaUri == null) return null;
+        try {
+            URI derived = deriveThumbnailRequestUri(URI.create(mediaUri.toString()));
+            return derived == null ? null : Uri.parse(derived.toString());
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    static URI deriveThumbnailRequestUri(URI mediaUri) {
+        if (mediaUri == null
+                || (!"http".equalsIgnoreCase(mediaUri.getScheme())
+                && !"https".equalsIgnoreCase(mediaUri.getScheme()))
+                || mediaUri.getRawAuthority() == null
+                || mediaUri.getRawAuthority().isBlank()) {
+            return null;
+        }
+        String rawPath = mediaUri.getRawPath();
+        if (rawPath == null || rawPath.isBlank()) return null;
+        String[] segments = rawPath.split("/", -1);
+        for (int index = 0; index + 1 < segments.length; index++) {
+            if (!"media".equalsIgnoreCase(segments[index])) continue;
+            String objectId = segments[index + 1];
+            if (objectId == null || objectId.isBlank()) return null;
+            return URI.create(
+                    mediaUri.getScheme()
+                            + "://"
+                            + mediaUri.getRawAuthority()
+                            + "/thumbnail/request/"
+                            + objectId
+                            + ".jpg"
+            );
+        }
+        return null;
     }
 
     static URI resolveArtworkUri(URI artworkUri, URI mediaUri) {

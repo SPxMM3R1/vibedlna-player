@@ -193,6 +193,7 @@ public final class MainActivity extends Activity {
         serverArtworkSwitch.setOnCheckedChangeListener((button, checked) -> {
             if (updatingThumbnailOptions) return;
             preferences.setThumbnailServerArtwork(checked);
+            if (checked) cancelThumbnailScan();
             thumbnailRepository.setSettings(checked
                     ? new ThumbnailSettings(ThumbnailSettings.Mode.SERVER)
                     : ThumbnailSettings.generated(preferences.getThumbnailPercentage()));
@@ -364,6 +365,9 @@ public final class MainActivity extends Activity {
     }
 
     private void showEntries(List<VideoItem> loaded) {
+        // Cancel work from the previous folder before replacing the adapter data.
+        // Otherwise late thumbnail callbacks can repaint cards from another folder.
+        thumbnailRepository.resetForFolder();
         entries.clear();
         entries.addAll(loaded);
         for (VideoItem entry : entries) {
@@ -402,6 +406,10 @@ public final class MainActivity extends Activity {
             browseContainer(entry.getId(), entry.getName());
             return;
         }
+        // Stop thumbnail work before opening the media connection. This keeps
+        // a local frame extraction or server request from competing with playback.
+        cancelThumbnailScan();
+        thumbnailRepository.pause();
         Intent intent = new Intent(this, PlayerActivity.class);
         intent.putExtra(PlayerActivity.EXTRA_URI, entry.getUri().toString());
         intent.putExtra(PlayerActivity.EXTRA_TITLE, entry.getName());
@@ -511,10 +519,14 @@ public final class MainActivity extends Activity {
         thumbnailPercent25.setEnabled(enabled);
         thumbnailPercent50.setEnabled(enabled);
         thumbnailPercent75.setEnabled(enabled);
+        generateThumbnailsOption.setEnabled(enabled);
+        regenerateThumbnailsOption.setEnabled(enabled);
         float alpha = enabled ? 1f : 0.42f;
         thumbnailPercent25.setAlpha(alpha);
         thumbnailPercent50.setAlpha(alpha);
         thumbnailPercent75.setAlpha(alpha);
+        generateThumbnailsOption.setAlpha(alpha);
+        regenerateThumbnailsOption.setAlpha(alpha);
     }
 
     private void selectThumbnailPercentage(int percentage) {
@@ -532,7 +544,9 @@ public final class MainActivity extends Activity {
     }
 
     private void scanThumbnailTree(boolean regenerate) {
-        if (currentServer == null) return;
+        if (currentServer == null || thumbnailRepository.getSettings().prefersServerArtwork()) {
+            return;
+        }
         int generation = ++thumbnailScanGeneration;
         DlnaServer server = currentServer;
         String rootId = currentContainerId;
@@ -771,6 +785,7 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        cancelThumbnailScan();
         thumbnailRepository.pause();
         if (appUpdater != null) appUpdater.onHostPause();
         super.onPause();

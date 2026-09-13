@@ -9,7 +9,7 @@ import org.junit.Test;
 
 public final class ThumbnailSettingsTest {
     @Test
-    public void serverModeFallsBackToHalfwayFrame() {
+    public void serverModeKeepsFramePositionOnlyAsDisabledLocalSetting() {
         ThumbnailSettings settings =
                 new ThumbnailSettings(ThumbnailSettings.Mode.SERVER);
         assertTrue(settings.prefersServerArtwork());
