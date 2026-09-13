@@ -102,9 +102,11 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
         holder.folderRow.setVisibility(View.GONE);
         holder.placeholder.setImageResource(R.drawable.ic_play_outline);
         holder.placeholder.setVisibility(View.VISIBLE);
-        thumbnails.load(entry, bitmap -> {
+        holder.thumbnailSource.setText(ThumbnailRepository.Source.NONE.label);
+        thumbnails.load(entry, (bitmap, source) -> {
             if (!token.equals(holder.thumbnail.getTag())) return;
             holder.thumbnail.setImageBitmap(bitmap);
+            holder.thumbnailSource.setText(source.label);
             holder.placeholder.setVisibility(bitmap == null ? View.VISIBLE : View.GONE);
         });
     }
@@ -121,6 +123,7 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
     static final class VideoHolder extends RecyclerView.ViewHolder {
         final ImageView thumbnail;
         final ImageView placeholder;
+        final TextView thumbnailSource;
         final TextView title;
         final View thumbnailFrame;
         final View folderRow;
@@ -130,6 +133,7 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
             super(itemView);
             thumbnail = itemView.findViewById(R.id.video_thumbnail);
             placeholder = itemView.findViewById(R.id.video_placeholder);
+            thumbnailSource = itemView.findViewById(R.id.thumbnail_source);
             title = itemView.findViewById(R.id.video_title);
             thumbnailFrame = itemView.findViewById(R.id.thumbnail_frame);
             folderRow = itemView.findViewById(R.id.folder_row);
