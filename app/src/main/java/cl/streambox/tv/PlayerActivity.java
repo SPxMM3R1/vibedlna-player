@@ -33,6 +33,8 @@ import androidx.media3.ui.PlayerView;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public final class PlayerActivity extends Activity {
     static final String EXTRA_URI = "video_uri";
@@ -46,6 +48,7 @@ public final class PlayerActivity extends Activity {
     private static final int PROGRESS_MAX = 1_000;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final ExecutorService resumeExecutor = Executors.newSingleThreadExecutor();
     private PlayerView playerView;
     private View overlay;
     private View clockPanel;
@@ -385,17 +388,16 @@ public final class PlayerActivity extends Activity {
             return;
         }
         long duration = playbackDuration();
-        resumeStore.save(
-                resumeKey,
-                Math.max(0L, player.getCurrentPosition()),
-                duration,
-                System.currentTimeMillis()
-        );
+        long position = Math.max(0L, player.getCurrentPosition());
+        long savedAt = System.currentTimeMillis();
+        String key = resumeKey;
+        resumeExecutor.execute(() -> resumeStore.save(key, position, duration, savedAt));
     }
 
     @Override
     protected void onDestroy() {
         releasePlayer();
+        resumeExecutor.shutdown();
         super.onDestroy();
     }
 }

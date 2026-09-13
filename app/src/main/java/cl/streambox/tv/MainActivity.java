@@ -166,8 +166,14 @@ public final class MainActivity extends Activity {
                     @NonNull RecyclerView parent,
                     @NonNull RecyclerView.State state
             ) {
-                int spacing = dp(7);
-                outRect.set(spacing, spacing, spacing, spacing);
+                int horizontalSpacing = dp(7);
+                int verticalSpacing = dp(3);
+                outRect.set(
+                        horizontalSpacing,
+                        verticalSpacing,
+                        horizontalSpacing,
+                        verticalSpacing
+                );
             }
         });
     }
