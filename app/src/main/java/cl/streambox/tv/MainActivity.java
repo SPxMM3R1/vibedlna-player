@@ -26,7 +26,6 @@ import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
-import android.widget.Switch;
 import android.widget.TextView;
 import android.window.OnBackInvokedDispatcher;
 
@@ -34,15 +33,12 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -51,7 +47,7 @@ public final class MainActivity extends Activity {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService dlnaExecutor = Executors.newFixedThreadPool(2);
     private final ExecutorService updateExecutor = Executors.newSingleThreadExecutor();
-    private final ExecutorService thumbnailScanExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService thumbnailCacheExecutor = Executors.newSingleThreadExecutor();
     private final List<VideoItem> entries = new ArrayList<>();
     private final List<DlnaServer> availableServers = new ArrayList<>();
     private final Map<String, String> containerNames = new HashMap<>();
@@ -69,15 +65,7 @@ public final class MainActivity extends Activity {
     private Button discoverOption;
     private TextView serverValue;
     private TextView folderValue;
-    private Switch serverArtworkSwitch;
-    private Button thumbnailPercent25;
-    private Button thumbnailPercent50;
-    private Button thumbnailPercent75;
-    private Button generateThumbnailsOption;
-    private Button regenerateThumbnailsOption;
     private Button clearThumbnailsOption;
-    private TextView thumbnailProgress;
-    private Button cancelThumbnailScan;
 
     private LibraryPreferences preferences;
     private DlnaDiscovery discovery;
@@ -93,8 +81,6 @@ public final class MainActivity extends Activity {
     private Dialog exitDialog;
     private int discoveryGeneration;
     private int browseGeneration;
-    private int thumbnailScanGeneration;
-    private boolean updatingThumbnailOptions;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -104,11 +90,7 @@ public final class MainActivity extends Activity {
         new PlaybackResumeStore(this).prune(System.currentTimeMillis());
         discovery = new DlnaDiscovery(this);
         contentRepository = new DlnaContentRepository(discovery);
-        thumbnailRepository = new ThumbnailRepository(
-                this,
-                mainHandler,
-                preferences.getThumbnailSettings()
-        );
+        thumbnailRepository = new ThumbnailRepository(this, mainHandler);
         bindViews();
         configureGrid();
         configureActions();
@@ -134,15 +116,7 @@ public final class MainActivity extends Activity {
         discoverOption = findViewById(R.id.discover_option);
         serverValue = findViewById(R.id.server_value);
         folderValue = findViewById(R.id.folder_value);
-        serverArtworkSwitch = findViewById(R.id.server_artwork_switch);
-        thumbnailPercent25 = findViewById(R.id.thumbnail_percent_25);
-        thumbnailPercent50 = findViewById(R.id.thumbnail_percent_50);
-        thumbnailPercent75 = findViewById(R.id.thumbnail_percent_75);
-        generateThumbnailsOption = findViewById(R.id.generate_thumbnails_option);
-        regenerateThumbnailsOption = findViewById(R.id.regenerate_thumbnails_option);
         clearThumbnailsOption = findViewById(R.id.clear_thumbnails_option);
-        thumbnailProgress = findViewById(R.id.thumbnail_progress);
-        cancelThumbnailScan = findViewById(R.id.cancel_thumbnail_scan);
         TextView wordmark = findViewById(R.id.app_wordmark);
         SpannableString wordmarkText = new SpannableString("VibeDLNA Player");
         wordmarkText.setSpan(
@@ -156,7 +130,11 @@ public final class MainActivity extends Activity {
 
     private void configureGrid() {
         adapter = new VideoAdapter(thumbnailRepository, this::openEntry);
-        videoGrid.setLayoutManager(new GridLayoutManager(this, 4));
+        GridLayoutManager layoutManager = new GridLayoutManager(this, 4);
+        // Do not ask RecyclerView to bind off-screen cards just to load their
+        // artwork. The repository loads only cards actually displayed.
+        layoutManager.setItemPrefetchEnabled(false);
+        videoGrid.setLayoutManager(layoutManager);
         videoGrid.setAdapter(adapter);
         videoGrid.addItemDecoration(new RecyclerView.ItemDecoration() {
             @Override
@@ -190,24 +168,7 @@ public final class MainActivity extends Activity {
             closeOptions();
             discoverServers(false);
         });
-        serverArtworkSwitch.setOnCheckedChangeListener((button, checked) -> {
-            if (updatingThumbnailOptions) return;
-            preferences.setThumbnailServerArtwork(checked);
-            if (checked) cancelThumbnailScan();
-            thumbnailRepository.setSettings(checked
-                    ? new ThumbnailSettings(ThumbnailSettings.Mode.SERVER)
-                    : ThumbnailSettings.generated(preferences.getThumbnailPercentage()));
-            updateOptionValues();
-            adapter.refreshThumbnails();
-            thumbnailRepository.prefetch(entries);
-        });
-        thumbnailPercent25.setOnClickListener(view -> selectThumbnailPercentage(25));
-        thumbnailPercent50.setOnClickListener(view -> selectThumbnailPercentage(50));
-        thumbnailPercent75.setOnClickListener(view -> selectThumbnailPercentage(75));
-        generateThumbnailsOption.setOnClickListener(view -> scanThumbnailTree(false));
-        regenerateThumbnailsOption.setOnClickListener(view -> scanThumbnailTree(true));
         clearThumbnailsOption.setOnClickListener(view -> showClearThumbnailsDialog());
-        cancelThumbnailScan.setOnClickListener(view -> cancelThumbnailScan());
     }
 
     private void discoverServers(boolean automatic) {
@@ -320,7 +281,6 @@ public final class MainActivity extends Activity {
     }
 
     private void selectAvailableServer(DlnaServer server, boolean resetFolder) {
-        thumbnailScanGeneration++;
         currentServer = server;
         if (resetFolder || !server.getUdn().equals(preferences.getServerUdn())) {
             preferences.selectServer(server);
@@ -383,7 +343,6 @@ public final class MainActivity extends Activity {
             }
         });
         adapter.submit(entries);
-        thumbnailRepository.prefetch(entries);
         updateHeader();
         updateOptionValues();
         libraryProgress.setVisibility(View.GONE);
@@ -406,9 +365,7 @@ public final class MainActivity extends Activity {
             browseContainer(entry.getId(), entry.getName());
             return;
         }
-        // Stop thumbnail work before opening the media connection. This keeps
-        // a local frame extraction or server request from competing with playback.
-        cancelThumbnailScan();
+        // Stop announced-artwork downloads before opening the media connection.
         thumbnailRepository.pause();
         Intent intent = new Intent(this, PlayerActivity.class);
         intent.putExtra(PlayerActivity.EXTRA_URI, entry.getUri().toString());
@@ -507,134 +464,6 @@ public final class MainActivity extends Activity {
         folderValue.setText(currentContainerName == null
                 ? preferences.getContainerName()
                 : currentContainerName);
-        ThumbnailSettings settings = thumbnailRepository.getSettings();
-        updatingThumbnailOptions = true;
-        serverArtworkSwitch.setChecked(settings.prefersServerArtwork());
-        updatingThumbnailOptions = false;
-        int percentage = preferences.getThumbnailPercentage();
-        setPercentSelected(thumbnailPercent25, percentage == 25);
-        setPercentSelected(thumbnailPercent50, percentage == 50);
-        setPercentSelected(thumbnailPercent75, percentage == 75);
-        boolean enabled = !settings.prefersServerArtwork();
-        thumbnailPercent25.setEnabled(enabled);
-        thumbnailPercent50.setEnabled(enabled);
-        thumbnailPercent75.setEnabled(enabled);
-        generateThumbnailsOption.setEnabled(enabled);
-        regenerateThumbnailsOption.setEnabled(enabled);
-        float alpha = enabled ? 1f : 0.42f;
-        thumbnailPercent25.setAlpha(alpha);
-        thumbnailPercent50.setAlpha(alpha);
-        thumbnailPercent75.setAlpha(alpha);
-        generateThumbnailsOption.setAlpha(alpha);
-        regenerateThumbnailsOption.setAlpha(alpha);
-    }
-
-    private void selectThumbnailPercentage(int percentage) {
-        preferences.setThumbnailPercentage(percentage);
-        preferences.setThumbnailServerArtwork(false);
-        ThumbnailSettings updated = ThumbnailSettings.generated(percentage);
-        thumbnailRepository.setSettings(updated);
-        updateOptionValues();
-        adapter.refreshThumbnails();
-        thumbnailRepository.prefetch(entries);
-    }
-
-    private void setPercentSelected(Button button, boolean selected) {
-        button.setSelected(selected);
-    }
-
-    private void scanThumbnailTree(boolean regenerate) {
-        if (currentServer == null || thumbnailRepository.getSettings().prefersServerArtwork()) {
-            return;
-        }
-        int generation = ++thumbnailScanGeneration;
-        DlnaServer server = currentServer;
-        String rootId = currentContainerId;
-        setThumbnailProgress(getString(R.string.thumbnail_scanning_folders), true);
-        thumbnailScanExecutor.submit(() -> {
-            List<VideoItem> videos = new ArrayList<>();
-            ArrayDeque<String> pending = new ArrayDeque<>();
-            Set<String> visited = new HashSet<>();
-            pending.add(rootId);
-            while (!pending.isEmpty() && generation == thumbnailScanGeneration) {
-                String containerId = pending.removeFirst();
-                if (!visited.add(containerId)) continue;
-                try {
-                    DlnaContentRepository.BrowseResult result =
-                            contentRepository.browse(server, containerId);
-                    for (VideoItem item : result.entries) {
-                        if (item.isContainer()) pending.addLast(item.getId());
-                        else videos.add(item);
-                    }
-                } catch (Exception ignored) {
-                    // Continúa con las demás carpetas accesibles.
-                }
-            }
-            mainHandler.post(() -> {
-                if (generation != thumbnailScanGeneration || isFinishing()) return;
-                processThumbnailVideos(videos, regenerate, generation);
-            });
-        });
-    }
-
-    private void processThumbnailVideos(
-            List<VideoItem> videos,
-            boolean regenerate,
-            int generation
-    ) {
-        if (videos.isEmpty()) {
-            setThumbnailProgress(getString(R.string.thumbnail_none_found), false);
-            return;
-        }
-        ThumbnailBatch batch = new ThumbnailBatch(videos, regenerate, generation);
-        setThumbnailProgress(
-                getString(R.string.thumbnail_processing, 0, videos.size()),
-                true
-        );
-        startNextThumbnail(batch);
-        startNextThumbnail(batch);
-    }
-
-    private void startNextThumbnail(ThumbnailBatch batch) {
-        if (batch.generation != thumbnailScanGeneration) return;
-        if (batch.nextIndex >= batch.videos.size()) {
-            if (batch.active == 0) {
-                setThumbnailProgress(
-                        getString(R.string.thumbnail_ready, batch.completed),
-                        false
-                );
-                adapter.refreshThumbnails();
-            }
-            return;
-        }
-        VideoItem video = batch.videos.get(batch.nextIndex++);
-        batch.active++;
-        if (batch.regenerate) thumbnailRepository.evict(video);
-        thumbnailRepository.load(video, (bitmap, source) -> {
-            if (batch.generation != thumbnailScanGeneration) return;
-            batch.active--;
-            batch.completed++;
-            setThumbnailProgress(
-                    getString(
-                            R.string.thumbnail_processing,
-                            batch.completed,
-                            batch.videos.size()
-                    ),
-                    true
-            );
-            startNextThumbnail(batch);
-        });
-    }
-
-    private void cancelThumbnailScan() {
-        thumbnailScanGeneration++;
-        setThumbnailProgress(getString(R.string.thumbnail_cancelled), false);
-    }
-
-    private void setThumbnailProgress(String message, boolean running) {
-        thumbnailProgress.setText(message);
-        thumbnailProgress.setVisibility(View.VISIBLE);
-        cancelThumbnailScan.setVisibility(running ? View.VISIBLE : View.GONE);
     }
 
     private void showClearThumbnailsDialog() {
@@ -646,16 +475,11 @@ public final class MainActivity extends Activity {
         cancel.setOnClickListener(view -> dialog.dismiss());
         clear.setOnClickListener(view -> {
             dialog.dismiss();
-            cancelThumbnailScan();
-            thumbnailScanExecutor.submit(() -> {
+            thumbnailCacheExecutor.submit(() -> {
                 thumbnailRepository.clearAll();
                 mainHandler.post(() -> {
                     if (isFinishing()) return;
                     adapter.refreshThumbnails();
-                    setThumbnailProgress(
-                            getString(R.string.thumbnail_cache_cleared),
-                            false
-                    );
                 });
             });
         });
@@ -725,9 +549,7 @@ public final class MainActivity extends Activity {
     }
 
     private void handleBackAction() {
-        if (cancelThumbnailScan.getVisibility() == View.VISIBLE) {
-            cancelThumbnailScan();
-        } else if (optionsPanel.getVisibility() == View.VISIBLE) {
+        if (optionsPanel.getVisibility() == View.VISIBLE) {
             closeOptions();
         } else if (serverDialog != null && serverDialog.isShowing()) {
             serverDialog.dismiss();
@@ -778,14 +600,12 @@ public final class MainActivity extends Activity {
         super.onResume();
         thumbnailRepository.resume();
         adapter.refreshThumbnails();
-        thumbnailRepository.prefetch(entries);
         if (appUpdater != null) appUpdater.onHostResume();
         enterImmersiveMode();
     }
 
     @Override
     protected void onPause() {
-        cancelThumbnailScan();
         thumbnailRepository.pause();
         if (appUpdater != null) appUpdater.onHostPause();
         super.onPause();
@@ -822,26 +642,10 @@ public final class MainActivity extends Activity {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
-    private static final class ThumbnailBatch {
-        final List<VideoItem> videos;
-        final boolean regenerate;
-        final int generation;
-        int nextIndex;
-        int active;
-        int completed;
-
-        ThumbnailBatch(List<VideoItem> videos, boolean regenerate, int generation) {
-            this.videos = videos;
-            this.regenerate = regenerate;
-            this.generation = generation;
-        }
-    }
-
     @Override
     protected void onDestroy() {
         discoveryGeneration++;
         browseGeneration++;
-        thumbnailScanGeneration++;
         mainHandler.removeCallbacksAndMessages(null);
         if (serverDialog != null) serverDialog.dismiss();
         if (exitDialog != null) exitDialog.dismiss();
@@ -850,7 +654,7 @@ public final class MainActivity extends Activity {
         discovery.close();
         dlnaExecutor.shutdownNow();
         updateExecutor.shutdownNow();
-        thumbnailScanExecutor.shutdownNow();
+        thumbnailCacheExecutor.shutdownNow();
         super.onDestroy();
     }
 }

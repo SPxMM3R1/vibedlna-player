@@ -14,9 +14,8 @@
     <string name="empty_remote_folder">Esta carpeta no contiene videos ni subcarpetas.</string>
     <string name="options">Opciones</string>
     <string name="library_section">BIBLIOTECA</string>
-    <string name="thumbnail_section">MINIATURAS</string>
-    <string name="thumbnail_use_server">Usar miniatura del servidor (sin generación local)</string>
-    <string name="thumbnail_frame_position">Fotograma local (solo con servidor desactivado)</string>
+    <string name="thumbnail_section">MINIATURAS DEL SERVIDOR</string>
+    <string name="thumbnail_server_authoritative_description">Se muestran solo las miniaturas que el servidor DLNA anuncia y ya tiene listas. Esta app no las genera ni solicita su creación.</string>
     <string name="dlna_server">Servidor DLNA</string>
     <string name="select_server">Seleccionar servidor</string>
     <string name="search_servers">Buscar servidores</string>
@@ -24,23 +23,9 @@
     <string name="current_remote_folder">Carpeta remota actual</string>
     <string name="select_dlna_server">Seleccionar servidor DLNA</string>
     <string name="select_dlna_server_description">Servidores MediaServer disponibles en esta red.</string>
-    <string name="thumbnails">Miniaturas</string>
-    <string name="frame_at_half" formatted="false">Fotograma al 50%</string>
-    <string name="thumbnail_server" formatted="false">Servidor</string>
-    <string name="thumbnail_generated_25" formatted="false">Generada al 25%</string>
-    <string name="thumbnail_generated_50" formatted="false">Generada al 50%</string>
-    <string name="thumbnail_generated_75" formatted="false">Generada al 75%</string>
-    <string name="thumbnail_generate_missing">Generar faltantes en esta carpeta</string>
-    <string name="thumbnail_regenerate_folder">Regenerar esta carpeta completa</string>
-    <string name="thumbnail_clear_all">Borrar caché local de miniaturas</string>
-    <string name="thumbnail_scanning_folders">Examinando carpetas…</string>
-    <string name="thumbnail_processing">Procesando %1$d de %2$d</string>
-    <string name="thumbnail_ready">%1$d miniaturas listas</string>
-    <string name="thumbnail_none_found">No se encontraron videos</string>
-    <string name="thumbnail_cancelled">Proceso cancelado</string>
-    <string name="thumbnail_cache_cleared">Se borró la caché local de miniaturas</string>
-    <string name="thumbnail_clear_title">¿Borrar la caché local?</string>
-    <string name="thumbnail_clear_description">Borra las miniaturas guardadas en este dispositivo. Las del servidor no se modifican.</string>
+    <string name="thumbnail_clear_all">Borrar caché de miniaturas recibidas</string>
+    <string name="thumbnail_clear_title">¿Borrar la caché recibida?</string>
+    <string name="thumbnail_clear_description">Borra las imágenes de miniatura guardadas en este dispositivo. No genera ni solicita miniaturas nuevas.</string>
     <string name="cancel">Cancelar</string>
     <string name="delete">Borrar</string>
     <string name="privacy_note">La posicion se conserva temporalmente durante una hora</string>

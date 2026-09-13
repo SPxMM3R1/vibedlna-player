@@ -3,7 +3,6 @@ package cl.streambox.tv;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
@@ -14,22 +13,26 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
-import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 
+/**
+ * Consumes only artwork announced by a DLNA server.
+ *
+ * <p>This class may cache and decode an announced image, but it never derives
+ * an artwork URL, extracts a frame from a video, or asks a server to generate
+ * a missing image.</p>
+ */
 final class ThumbnailRepository {
     interface Callback {
         void onLoaded(Bitmap bitmap, Source source);
@@ -37,8 +40,6 @@ final class ThumbnailRepository {
 
     enum Source {
         SERVER("SERVIDOR"),
-        LOCAL("LOCAL"),
-        SERVER_UNAVAILABLE("SERVIDOR NO DISPONIBLE"),
         NONE("SIN MINIATURA");
 
         final String label;
@@ -64,14 +65,11 @@ final class ThumbnailRepository {
     }
 
     private static final String TAG = "VibeThumbnails";
-    private static final int WIDTH = 480;
-    private static final int HEIGHT = 270;
-    private static final int MAX_PREFETCH_ITEMS = 24;
-    private static final String USER_AGENT = "VibeDLNA/0.3.12";
-    private static final String SERVER_FALLBACK_VARIANT = "server-fallback-50";
-    private static final String SERVER_ARTWORK_VARIANT = "server-artwork-";
+    private static final String ARTWORK_VARIANT = "server-artwork-";
+    private static final int CONNECT_TIMEOUT_MS = 8_000;
+    private static final int READ_TIMEOUT_MS = 15_000;
+    private static final String USER_AGENT = "VibeDLNA Player/0.3.12";
 
-    private final Context context;
     private final File cacheDirectory;
     private final File legacyCacheDirectory;
     private final Handler mainHandler;
@@ -84,45 +82,31 @@ final class ThumbnailRepository {
             new LruCache<String, LoadedThumbnail>(16 * 1024) {
                 @Override
                 protected int sizeOf(String key, LoadedThumbnail value) {
-                    return Math.max(1, value.bitmap.getAllocationByteCount() / 1024);
+                    return value.bitmap == null
+                            ? 1
+                            : Math.max(1, value.bitmap.getAllocationByteCount() / 1024);
                 }
             };
 
-    private volatile ThumbnailSettings settings;
     private volatile boolean destroyed;
     private volatile boolean paused;
     private int cacheEpoch;
     private int requestGeneration;
 
-    ThumbnailRepository(
-            Context context,
-            Handler mainHandler,
-            ThumbnailSettings initialSettings
-    ) {
-        this.context = context.getApplicationContext();
+    ThumbnailRepository(Context context, Handler mainHandler) {
+        Context appContext = context.getApplicationContext();
         this.mainHandler = mainHandler;
-        settings = initialSettings;
-        cacheDirectory = context.getDir("video_thumbnails", Context.MODE_PRIVATE);
-        legacyCacheDirectory = new File(context.getCacheDir(), "video_thumbnails");
+        cacheDirectory = appContext.getDir("video_thumbnails", Context.MODE_PRIVATE);
+        legacyCacheDirectory = new File(appContext.getCacheDir(), "video_thumbnails");
         ensureDirectory(cacheDirectory);
     }
 
-    void setSettings(ThumbnailSettings updatedSettings) {
-        settings = updatedSettings == null
-                ? new ThumbnailSettings(ThumbnailSettings.Mode.SERVER)
-                : updatedSettings;
-        synchronized (diskLock) {
-            requestGeneration++;
-        }
-        cancelPending();
-    }
-
-    ThumbnailSettings getSettings() {
-        return settings;
-    }
-
+    /**
+     * Returns the identity used by the adapter to reject a late callback.
+     * The identity includes the exact artwork URL announced by the server.
+     */
     String requestKey(VideoItem video) {
-        String name = cacheName(video, settings);
+        String name = cacheName(video);
         synchronized (diskLock) {
             return name + ":" + cacheEpoch + ":" + revision(name)
                     + ":" + requestGeneration;
@@ -130,16 +114,24 @@ final class ThumbnailRepository {
     }
 
     void load(VideoItem video, Callback callback) {
-        ThumbnailSettings requestSettings = settings;
-        String cacheName = cacheName(video, requestSettings);
+        if (video == null || video.isContainer()) return;
+
+        Uri artworkUri = video.getArtworkUri();
         int requestEpoch;
         int requestRevision;
         int requestGeneration;
+        String cacheName = cacheName(video);
         synchronized (diskLock) {
             requestEpoch = cacheEpoch;
             requestRevision = revision(cacheName);
             requestGeneration = this.requestGeneration;
         }
+
+        if (!isRemoteArtwork(artworkUri)) {
+            post(callback, new LoadedThumbnail(null, Source.NONE), requestGeneration);
+            return;
+        }
+
         String workKey = cacheName + ":" + requestEpoch + ":" + requestRevision;
         LoadedThumbnail memoryThumbnail;
         synchronized (memoryCache) {
@@ -181,12 +173,13 @@ final class ThumbnailRepository {
                     removePending(workKey, request);
                     return;
                 }
-                LoadedThumbnail thumbnail = loadOrCreate(
-                        video,
-                        requestSettings,
+
+                LoadedThumbnail thumbnail = loadAnnouncedArtwork(
+                        artworkUri,
                         cacheName,
                         requestEpoch,
-                        requestRevision
+                        requestRevision,
+                        requestGeneration
                 );
                 if (!isCurrentPending(workKey, request)
                         || paused
@@ -197,6 +190,7 @@ final class ThumbnailRepository {
                     removePending(workKey, request);
                     return;
                 }
+
                 if (thumbnail.bitmap != null) {
                     synchronized (memoryCache) {
                         memoryCache.put(workKey, thumbnail);
@@ -223,21 +217,129 @@ final class ThumbnailRepository {
         }
     }
 
-    void prefetch(List<VideoItem> videos) {
-        if (paused || destroyed) return;
-        int scheduled = 0;
-        for (VideoItem video : videos) {
-            if (video.isContainer()) continue;
-            load(video, null);
-            if (++scheduled >= MAX_PREFETCH_ITEMS) break;
-        }
-    }
-
     void resetForFolder() {
         synchronized (diskLock) {
             requestGeneration++;
         }
         cancelPending();
+    }
+
+    void pause() {
+        paused = true;
+        synchronized (diskLock) {
+            requestGeneration++;
+        }
+        cancelPending();
+        synchronized (executorLock) {
+            executor.shutdownNow();
+        }
+    }
+
+    void resume() {
+        synchronized (executorLock) {
+            if (destroyed) return;
+            if (executor.isShutdown()) {
+                executor = Executors.newFixedThreadPool(2);
+            }
+            paused = false;
+        }
+    }
+
+    void clearAll() {
+        cancelPending();
+        synchronized (memoryCache) {
+            memoryCache.evictAll();
+        }
+        synchronized (diskLock) {
+            cacheEpoch++;
+            requestGeneration++;
+            revisions.clear();
+            deleteFiles(cacheDirectory.listFiles());
+            deleteFiles(legacyCacheDirectory.listFiles());
+        }
+    }
+
+    void destroy() {
+        destroyed = true;
+        synchronized (diskLock) {
+            requestGeneration++;
+        }
+        cancelPending();
+        synchronized (executorLock) {
+            executor.shutdownNow();
+        }
+        synchronized (memoryCache) {
+            memoryCache.evictAll();
+        }
+    }
+
+    private LoadedThumbnail loadAnnouncedArtwork(
+            Uri artworkUri,
+            String cacheName,
+            int requestEpoch,
+            int requestRevision,
+            int requestGeneration
+    ) {
+        File cached = new File(cacheDirectory, cacheName);
+        Bitmap bitmap;
+        synchronized (diskLock) {
+            bitmap = requestIsCurrent(cacheName, requestEpoch, requestRevision)
+                    ? decode(cached)
+                    : null;
+        }
+        if (bitmap != null) return new LoadedThumbnail(bitmap, Source.SERVER);
+
+        bitmap = downloadArtwork(artworkUri);
+        if (bitmap == null) return new LoadedThumbnail(null, Source.NONE);
+
+        saveIfCurrent(
+                cached,
+                bitmap,
+                cacheName,
+                requestEpoch,
+                requestRevision,
+                requestGeneration
+        );
+        return new LoadedThumbnail(bitmap, Source.SERVER);
+    }
+
+    private Bitmap downloadArtwork(Uri artworkUri) {
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) new URL(artworkUri.toString()).openConnection();
+            connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+            connection.setReadTimeout(READ_TIMEOUT_MS);
+            connection.setInstanceFollowRedirects(false);
+            connection.setRequestProperty("User-Agent", USER_AGENT);
+            connection.setRequestProperty("transferMode.dlna.org", "Interactive");
+            connection.connect();
+            if (connection.getResponseCode() < 200 || connection.getResponseCode() >= 300) {
+                return null;
+            }
+            try (InputStream input = connection.getInputStream()) {
+                return BitmapFactory.decodeStream(input);
+            }
+        } catch (Exception error) {
+            Log.w(TAG, "No se pudo descargar la miniatura anunciada " + artworkUri, error);
+            return null;
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+    }
+
+    private void post(Callback callback, LoadedThumbnail thumbnail, int generation) {
+        if (callback == null) return;
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            if (!destroyed && !paused && isGenerationCurrent(generation)) {
+                callback.onLoaded(thumbnail.bitmap, thumbnail.source);
+            }
+            return;
+        }
+        mainHandler.post(() -> {
+            if (!destroyed && !paused && isGenerationCurrent(generation)) {
+                callback.onLoaded(thumbnail.bitmap, thumbnail.source);
+            }
+        });
     }
 
     private void cancelPending() {
@@ -273,251 +375,23 @@ final class ThumbnailRepository {
         }
     }
 
-    void pause() {
-        paused = true;
-        synchronized (diskLock) {
-            requestGeneration++;
-        }
-        cancelPending();
-        synchronized (executorLock) {
-            executor.shutdownNow();
-        }
-    }
-
-    void resume() {
-        synchronized (executorLock) {
-            if (destroyed) return;
-            if (executor.isShutdown()) {
-                executor = Executors.newFixedThreadPool(2);
-            }
-            paused = false;
-        }
-    }
-
-    void evict(VideoItem video) {
-        Set<String> names = new HashSet<>();
-        for (ThumbnailSettings.Mode mode : ThumbnailSettings.Mode.values()) {
-            names.add(cacheName(video, new ThumbnailSettings(mode)));
-        }
-        names.add(serverFallbackCacheName(video));
-        for (String name : names) {
-            synchronized (diskLock) {
-                revisions.put(name, revision(name) + 1);
-                File file = new File(cacheDirectory, name);
-                if (file.exists() && !file.delete()) {
-                    Log.w(TAG, "No se pudo borrar " + file);
-                }
-            }
-        }
-        synchronized (memoryCache) {
-            memoryCache.evictAll();
-        }
-    }
-
-    void clearAll() {
-        cancelPending();
-        synchronized (memoryCache) {
-            memoryCache.evictAll();
-        }
-        synchronized (diskLock) {
-            cacheEpoch++;
-            requestGeneration++;
-            revisions.clear();
-            File[] files = cacheDirectory.listFiles();
-            deleteFiles(files);
-            deleteFiles(legacyCacheDirectory.listFiles());
-        }
-    }
-
-    void destroy() {
-        destroyed = true;
-        synchronized (diskLock) {
-            requestGeneration++;
-        }
-        cancelPending();
-        synchronized (executorLock) {
-            executor.shutdownNow();
-        }
-        synchronized (memoryCache) {
-            memoryCache.evictAll();
-        }
-    }
-
-    private LoadedThumbnail loadOrCreate(
-            VideoItem video,
-            ThumbnailSettings requestSettings,
+    private boolean requestIsCurrent(
             String cacheName,
             int requestEpoch,
             int requestRevision
     ) {
-        File cached = new File(cacheDirectory, cacheName);
-        Bitmap bitmap;
-        boolean serverOnly = requestSettings.prefersServerArtwork();
-        boolean hasServerArtwork = serverOnly
-                && video.getArtworkUri() != null;
+        return requestEpoch == cacheEpoch && requestRevision == revision(cacheName);
+    }
+
+    private boolean isGenerationCurrent(int generation) {
         synchronized (diskLock) {
-            bitmap = (!serverOnly || hasServerArtwork)
-                    && requestIsCurrent(cacheName, requestEpoch, requestRevision)
-                    ? decode(cached)
-                    : null;
-        }
-        if (bitmap != null) return new LoadedThumbnail(bitmap, hasServerArtwork
-                ? Source.SERVER : Source.LOCAL);
-
-        if (serverOnly) {
-            if (!hasServerArtwork) {
-                return new LoadedThumbnail(null, Source.SERVER_UNAVAILABLE);
-            }
-
-            bitmap = downloadServerArtwork(video);
-            if (bitmap != null) {
-                Bitmap cropped = centerCrop(bitmap, WIDTH, HEIGHT);
-                if (cropped != bitmap) bitmap.recycle();
-                saveIfCurrent(
-                        cached,
-                        cropped,
-                        cacheName,
-                        requestEpoch,
-                        requestRevision,
-                        requestGeneration
-                );
-                return new LoadedThumbnail(cropped, Source.SERVER);
-            }
-            return new LoadedThumbnail(null, Source.SERVER_UNAVAILABLE);
-        }
-
-        if (requestSettings.generatedPercentage() == 50) {
-            File legacy = new File(legacyCacheDirectory, legacyCacheName(video));
-            bitmap = decode(legacy);
-            if (bitmap != null) {
-                saveIfCurrent(
-                        cached,
-                        bitmap,
-                        cacheName,
-                        requestEpoch,
-                        requestRevision,
-                        requestGeneration
-                );
-                return new LoadedThumbnail(bitmap, Source.LOCAL);
-            }
-        }
-        bitmap = createFrame(
-                video,
-                requestSettings.generatedPercentage(),
-                cached,
-                cacheName,
-                requestEpoch,
-                requestRevision
-        );
-        return new LoadedThumbnail(bitmap, bitmap == null ? Source.NONE : Source.LOCAL);
-    }
-
-    private Bitmap downloadServerArtwork(VideoItem video) {
-        Bitmap bitmap = downloadArtwork(video.getArtworkUri());
-        if (bitmap != null) return bitmap;
-
-        // Older VibeDLNA versions announced the hash URL only when the file
-        // was already cached. Retry through the ObjectID request endpoint so
-        // those servers can generate it after a restart as well.
-        Uri requestUri = DlnaContentRepository.deriveThumbnailRequestUri(video.getUri());
-        if (requestUri == null
-                || requestUri.toString().equals(video.getArtworkUri().toString())) {
-            return null;
-        }
-        return downloadArtwork(requestUri);
-    }
-
-    private Bitmap downloadArtwork(Uri artworkUri) {
-        HttpURLConnection connection = null;
-        try {
-            connection = (HttpURLConnection) new URL(artworkUri.toString()).openConnection();
-            connection.setConnectTimeout(8_000);
-            connection.setReadTimeout(60_000);
-            connection.setRequestProperty("User-Agent", USER_AGENT);
-            connection.setRequestProperty("transferMode.dlna.org", "Interactive");
-            connection.connect();
-            if (connection.getResponseCode() < 200 || connection.getResponseCode() >= 300) {
-                return null;
-            }
-            try (InputStream input = connection.getInputStream()) {
-                return BitmapFactory.decodeStream(input);
-            }
-        } catch (Exception error) {
-            Log.w(TAG, "No se pudo descargar " + artworkUri, error);
-            return null;
-        } finally {
-            if (connection != null) connection.disconnect();
+            return generation == requestGeneration;
         }
     }
 
-    private Bitmap createFrame(
-            VideoItem video,
-            int percentage,
-            File destination,
-            String cacheName,
-            int requestEpoch,
-            int requestRevision
-    ) {
-        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-        try {
-            String scheme = video.getUri().getScheme();
-            if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
-                Map<String, String> headers = new HashMap<>();
-                headers.put("User-Agent", USER_AGENT);
-                headers.put("transferMode.dlna.org", "Streaming");
-                retriever.setDataSource(video.getUri().toString(), headers);
-            } else {
-                retriever.setDataSource(context, video.getUri());
-            }
-            long durationMs = video.getDurationMs();
-            if (durationMs <= 0) {
-                String value = retriever.extractMetadata(
-                        MediaMetadataRetriever.METADATA_KEY_DURATION
-                );
-                if (value != null) durationMs = Long.parseLong(value);
-            }
-            long frameUs = Math.max(0L, durationMs * percentage * 10L);
-            Bitmap source = retriever.getFrameAtTime(
-                    frameUs,
-                    MediaMetadataRetriever.OPTION_CLOSEST
-            );
-            if (source == null) return null;
-            Bitmap bitmap = centerCrop(source, WIDTH, HEIGHT);
-            if (bitmap != source) source.recycle();
-            saveIfCurrent(
-                    destination,
-                    bitmap,
-                    cacheName,
-                    requestEpoch,
-                    requestRevision,
-                    requestGeneration
-            );
-            return bitmap;
-        } catch (Exception error) {
-            Log.w(TAG, "No se pudo crear la miniatura de " + video.getName(), error);
-            return null;
-        } finally {
-            try {
-                retriever.release();
-            } catch (Exception ignored) {
-                // Nada que liberar.
-            }
-        }
-    }
-
-    private void post(Callback callback, LoadedThumbnail thumbnail, int generation) {
-        if (callback == null) return;
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            if (!destroyed && !paused && isGenerationCurrent(generation)) {
-                callback.onLoaded(thumbnail.bitmap, thumbnail.source);
-            }
-            return;
-        }
-        mainHandler.post(() -> {
-            if (!destroyed && !paused && isGenerationCurrent(generation)) {
-                callback.onLoaded(thumbnail.bitmap, thumbnail.source);
-            }
-        });
+    private int revision(String cacheName) {
+        Integer value = revisions.get(cacheName);
+        return value == null ? 0 : value;
     }
 
     private void saveIfCurrent(
@@ -535,48 +409,28 @@ final class ThumbnailRepository {
         }
     }
 
-    private boolean requestIsCurrent(
-            String cacheName,
-            int requestEpoch,
-            int requestRevision
-    ) {
-        synchronized (diskLock) {
-            return requestEpoch == cacheEpoch && requestRevision == revision(cacheName);
+    static boolean isRemoteArtwork(Uri artworkUri) {
+        if (artworkUri == null) return false;
+        String scheme = artworkUri.getScheme();
+        if (!("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))) {
+            return false;
         }
+        String path = artworkUri.getPath();
+        return path == null
+                || !path.toLowerCase(Locale.ROOT).contains("/thumbnail/request");
     }
 
-    private boolean isGenerationCurrent(int generation) {
-        synchronized (diskLock) {
-            return generation == requestGeneration;
-        }
-    }
-
-    private int revision(String cacheName) {
-        Integer value = revisions.get(cacheName);
-        return value == null ? 0 : value;
-    }
-
-    private static Bitmap centerCrop(Bitmap source, int targetWidth, int targetHeight) {
-        float scale = Math.max(
-                targetWidth / (float) source.getWidth(),
-                targetHeight / (float) source.getHeight()
+    static String cacheName(VideoItem video) {
+        Uri artworkUri = video.getArtworkUri();
+        String artwork = artworkUri == null ? "" : artworkUri.toString();
+        String variant = artwork.isBlank()
+                ? "no-artwork"
+                : ARTWORK_VARIANT + sha256(artwork);
+        return ThumbnailCacheKey.name(
+                video.getServerUdn(),
+                video.getId(),
+                variant
         );
-        int scaledWidth = Math.max(targetWidth, Math.round(source.getWidth() * scale));
-        int scaledHeight = Math.max(targetHeight, Math.round(source.getHeight() * scale));
-        Bitmap scaled = Bitmap.createScaledBitmap(source, scaledWidth, scaledHeight, true);
-        int left = Math.max(0, (scaledWidth - targetWidth) / 2);
-        int top = Math.max(0, (scaledHeight - targetHeight) / 2);
-        Bitmap cropped = Bitmap.createBitmap(scaled, left, top, targetWidth, targetHeight);
-        if (scaled != source && scaled != cropped) scaled.recycle();
-        return cropped;
-    }
-
-    private static void recycle(LoadedThumbnail thumbnail) {
-        if (thumbnail != null
-                && thumbnail.bitmap != null
-                && !thumbnail.bitmap.isRecycled()) {
-            thumbnail.bitmap.recycle();
-        }
     }
 
     private static Bitmap decode(File file) {
@@ -636,47 +490,6 @@ final class ThumbnailRepository {
         }
     }
 
-    static String cacheName(VideoItem video, ThumbnailSettings settings) {
-        String variant = settings.cacheVariant();
-        if (settings.prefersServerArtwork() && video.getArtworkUri() != null) {
-            variant = SERVER_ARTWORK_VARIANT
-                    + sha256(serverArtworkIdentity(video.getArtworkUri()));
-        }
-        return ThumbnailCacheKey.name(
-                video.getServerUdn(),
-                video.getId(),
-                variant
-        );
-    }
-
-    private static String serverFallbackCacheName(VideoItem video) {
-        return ThumbnailCacheKey.name(
-                video.getServerUdn(),
-                video.getId(),
-                SERVER_FALLBACK_VARIANT
-        );
-    }
-
-    private static String serverArtworkIdentity(Uri artworkUri) {
-        return serverArtworkIdentity(artworkUri.toString());
-    }
-
-    static String serverArtworkIdentity(String artworkUrl) {
-        try {
-            URI uri = URI.create(artworkUrl);
-            String path = uri.getRawPath();
-            if (path == null || path.isBlank()) return artworkUrl;
-            String query = uri.getRawQuery();
-            return query == null || query.isBlank() ? path : path + "?" + query;
-        } catch (Exception ignored) {
-            return artworkUrl;
-        }
-    }
-
-    private static String legacyCacheName(VideoItem video) {
-        return sha256(video.getUri() + ":" + video.getLastModified()) + ".jpg";
-    }
-
     private static String sha256(String value) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
@@ -688,6 +501,14 @@ final class ThumbnailRepository {
             return result.toString();
         } catch (Exception ignored) {
             return Integer.toHexString(value.hashCode());
+        }
+    }
+
+    private static void recycle(LoadedThumbnail thumbnail) {
+        if (thumbnail != null
+                && thumbnail.bitmap != null
+                && !thumbnail.bitmap.isRecycled()) {
+            thumbnail.bitmap.recycle();
         }
     }
 }

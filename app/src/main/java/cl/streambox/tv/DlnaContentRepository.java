@@ -41,9 +41,9 @@ final class DlnaContentRepository {
     }
 
     /*
-     * VibeDLNA v1.0.1 may create a cached thumbnail while building a Browse
-     * response. Keep requests small enough that one slow Windows thumbnail
-     * provider does not make the whole folder hit jUPnP's HTTP timeout.
+     * Keep Browse windows bounded so a slow or malformed server response does
+     * not block the rest of a folder. Thumbnail loading happens only after
+     * DIDL has been parsed and never participates in Browse.
      */
     private static final int PAGE_SIZE = 8;
     private static final int MAX_ITEMS = 2_000;
@@ -72,10 +72,10 @@ final class DlnaContentRepository {
                 );
                 addEntries(page.content, result, server.getUdn(), seenIds);
             } catch (Exception pageFailure) {
-                // A later page can fail because one video thumbnail is slow or
+                // A later page can fail because one video resource is slow or
                 // malformed. Retry the failed window item-by-item. This also
-                // gives the first page a chance to load if only one video is
-                // responsible for the slow response.
+                // gives the first page a chance to load if only one resource
+                // is responsible for the slow response.
                 long recoveryEnd = recoveryEnd(start, total);
                 long recoveredItems = 0L;
                 for (long itemStart = start; itemStart < recoveryEnd; itemStart++) {
@@ -258,57 +258,17 @@ final class DlnaContentRepository {
         }
     }
 
-    private static Uri artworkUri(Item item, Uri mediaUri) {
+    static Uri artworkUri(Item item, Uri mediaUri) {
         try {
             URI value = item.getFirstPropertyValue(
                     DIDLObject.Property.UPNP.ALBUM_ART_URI.class
             );
-            if (value != null) {
-                URI resolved = resolveArtworkUri(value, URI.create(mediaUri.toString()));
-                if (resolved != null) return Uri.parse(resolved.toString());
-            }
-        } catch (Exception ignored) {
-        }
-        // VibeDLNA can expose the media resource before its thumbnail is ready.
-        // Keep a stable request URL so the server can generate/return it on demand.
-        return deriveThumbnailRequestUri(mediaUri);
-    }
-
-    static Uri deriveThumbnailRequestUri(Uri mediaUri) {
-        if (mediaUri == null) return null;
-        try {
-            URI derived = deriveThumbnailRequestUri(URI.create(mediaUri.toString()));
-            return derived == null ? null : Uri.parse(derived.toString());
+            if (value == null) return null;
+            URI resolved = resolveArtworkUri(value, URI.create(mediaUri.toString()));
+            return resolved == null ? null : Uri.parse(resolved.toString());
         } catch (Exception ignored) {
             return null;
         }
-    }
-
-    static URI deriveThumbnailRequestUri(URI mediaUri) {
-        if (mediaUri == null
-                || (!"http".equalsIgnoreCase(mediaUri.getScheme())
-                && !"https".equalsIgnoreCase(mediaUri.getScheme()))
-                || mediaUri.getRawAuthority() == null
-                || mediaUri.getRawAuthority().isBlank()) {
-            return null;
-        }
-        String rawPath = mediaUri.getRawPath();
-        if (rawPath == null || rawPath.isBlank()) return null;
-        String[] segments = rawPath.split("/", -1);
-        for (int index = 0; index + 1 < segments.length; index++) {
-            if (!"media".equalsIgnoreCase(segments[index])) continue;
-            String objectId = segments[index + 1];
-            if (objectId == null || objectId.isBlank()) return null;
-            return URI.create(
-                    mediaUri.getScheme()
-                            + "://"
-                            + mediaUri.getRawAuthority()
-                            + "/thumbnail/request/"
-                            + objectId
-                            + ".jpg"
-            );
-        }
-        return null;
     }
 
     static URI resolveArtworkUri(URI artworkUri, URI mediaUri) {
@@ -329,6 +289,11 @@ final class DlnaContentRepository {
             String scheme = resolved.getScheme();
             if (!"http".equalsIgnoreCase(scheme)
                     && !"https".equalsIgnoreCase(scheme)) {
+                return null;
+            }
+            String path = resolved.getRawPath();
+            if (path != null
+                    && path.toLowerCase(Locale.ROOT).contains("/thumbnail/request")) {
                 return null;
             }
             return resolved.toString().isBlank() ? null : resolved;

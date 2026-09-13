@@ -3,6 +3,8 @@ package cl.streambox.tv;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
+import android.net.Uri;
+
 import java.net.URI;
 
 import org.junit.Test;
@@ -10,6 +12,7 @@ import org.junit.Test;
 import org.jupnp.support.contentdirectory.DIDLParser;
 import org.jupnp.support.model.DIDLContent;
 import org.jupnp.support.model.DIDLObject;
+import org.jupnp.support.model.item.Item;
 
 public final class DlnaContentRepositoryTest {
     @Test
@@ -64,7 +67,7 @@ public final class DlnaContentRepositoryTest {
     }
 
     @Test
-    public void acceptsServerThumbnailEndpoint() {
+    public void acceptsAnnouncedServerArtwork() {
         URI artwork = DlnaContentRepository.resolveArtworkUri(
                 URI.create("http://192.168.1.20:43123/thumbnail/abc.jpg"),
                 URI.create("http://192.168.1.20:43123/media/video/file.mp4")
@@ -96,20 +99,34 @@ public final class DlnaContentRepositoryTest {
     }
 
     @Test
-    public void derivesOnDemandThumbnailFromVibeDlnaMediaUri() {
-        URI thumbnail = DlnaContentRepository.deriveThumbnailRequestUri(
+    public void rejectsOnDemandThumbnailEndpointEvenWhenAnnounced() {
+        assertNull(DlnaContentRepository.resolveArtworkUri(
+                URI.create("http://192.168.1.20:43123/thumbnail/request"),
                 URI.create("http://192.168.1.20:43123/media/F%3Avideo/video.mp4")
-        );
-        assertEquals(
-                "http://192.168.1.20:43123/thumbnail/request/F%3Avideo.jpg",
-                thumbnail.toString()
-        );
+        ));
+        assertNull(DlnaContentRepository.resolveArtworkUri(
+                URI.create("http://192.168.1.20:43123/thumbnail/request/F%3Avideo.jpg"),
+                URI.create("http://192.168.1.20:43123/media/F%3Avideo/video.mp4")
+        ));
     }
 
     @Test
-    public void doesNotDeriveThumbnailForUnrelatedMediaUri() {
-        assertNull(DlnaContentRepository.deriveThumbnailRequestUri(
-                URI.create("http://192.168.1.20:43123/content/video.mp4")
+    public void doesNotInventArtworkWhenServerOmitsAlbumArt() throws Exception {
+        String didl = "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\""
+                + " xmlns:dc=\"http://purl.org/dc/elements/1.1/\""
+                + " xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\">"
+                + "<item id=\"F:video\" parentID=\"0\" restricted=\"1\">"
+                + "<dc:title>video.mp4</dc:title>"
+                + "<upnp:class>object.item.videoItem</upnp:class>"
+                + "<res protocolInfo=\"http-get:*:video/mp4:*\">"
+                + "http://192.168.1.20:43123/media/F%3Avideo/video.mp4</res>"
+                + "</item></DIDL-Lite>";
+
+        DIDLContent content = new DIDLParser().parse(didl);
+        Item item = content.getItems().get(0);
+        assertNull(DlnaContentRepository.artworkUri(
+                item,
+                Uri.parse("http://192.168.1.20:43123/media/F%3Avideo/video.mp4")
         ));
     }
 }

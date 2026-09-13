@@ -9,8 +9,8 @@ Reproductor DLNA para Android TV con la interfaz compacta de VibeM3U.
 - Descubre automáticamente los MediaServers DLNA/UPnP anunciados en la red local.
 - Permite elegir un servidor y navegar sus carpetas virtuales mediante
   `ContentDirectory:Browse` ejecutado por jUPnP.
-- Guarda miniaturas en almacenamiento privado persistente y permite usar la
-  imagen anunciada por el servidor o generar fotogramas al 25%, 50% o 75%.
+- Guarda en almacenamiento privado las miniaturas que el servidor anuncia y
+  deja el estado vacío cuando el servidor no proporciona una imagen lista.
 - Muestra las carpetas en tarjetas compactas y los videos en tarjetas 16:9.
 - Conserva temporalmente la posición de un video durante una hora para
   reanudarlo automáticamente; no mantiene historial permanente.

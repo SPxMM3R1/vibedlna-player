@@ -170,7 +170,7 @@
                         android:id="@+id/server_option"
                         style="@style/OptionRow"
                         android:drawableStart="@drawable/ic_server_small"
-                        android:nextFocusRight="@id/server_artwork_switch"
+                        android:nextFocusRight="@id/clear_thumbnails_option"
                         android:text="@string/dlna_server" />
 
                     <TextView
@@ -180,7 +180,7 @@
                     <Button
                         android:id="@+id/discover_option"
                         style="@style/OptionRow"
-                        android:nextFocusRight="@id/server_artwork_switch"
+                        android:nextFocusRight="@id/clear_thumbnails_option"
                         android:text="@string/search_servers" />
 
                     <Button
@@ -221,82 +221,20 @@
                         android:textSize="11sp"
                         android:textStyle="bold" />
 
-                    <Switch
-                        android:id="@+id/server_artwork_switch"
-                        android:layout_width="match_parent"
-                        android:layout_height="42dp"
-                        android:buttonTint="@color/cyan"
-                        android:includeFontPadding="false"
-                        android:nextFocusLeft="@id/server_option"
-                        android:text="@string/thumbnail_use_server"
-                        android:textColor="@color/white"
-                        android:textSize="11sp" />
-
                     <TextView
                         android:layout_width="match_parent"
-                        android:layout_height="22dp"
+                        android:layout_height="wrap_content"
                         android:layout_marginTop="3dp"
                         android:includeFontPadding="false"
-                        android:text="@string/thumbnail_frame_position"
+                        android:text="@string/thumbnail_server_authoritative_description"
                         android:textColor="@color/muted"
                         android:textSize="10sp" />
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="42dp"
-                        android:orientation="horizontal">
-
-                        <Button
-                            android:id="@+id/thumbnail_percent_25"
-                            style="@style/ThumbnailPercent"
-                            android:nextFocusRight="@id/thumbnail_percent_50"
-                            android:text="25%" />
-
-                        <Button
-                            android:id="@+id/thumbnail_percent_50"
-                            style="@style/ThumbnailPercent"
-                            android:nextFocusLeft="@id/thumbnail_percent_25"
-                            android:nextFocusRight="@id/thumbnail_percent_75"
-                            android:text="50%" />
-
-                        <Button
-                            android:id="@+id/thumbnail_percent_75"
-                            style="@style/ThumbnailPercent"
-                            android:nextFocusLeft="@id/thumbnail_percent_50"
-                            android:text="75%" />
-                    </LinearLayout>
-
-                    <Button
-                        android:id="@+id/generate_thumbnails_option"
-                        style="@style/OptionRow"
-                        android:layout_marginTop="4dp"
-                        android:text="@string/thumbnail_generate_missing" />
-
-                    <Button
-                        android:id="@+id/regenerate_thumbnails_option"
-                        style="@style/OptionRow"
-                        android:text="@string/thumbnail_regenerate_folder" />
 
                     <Button
                         android:id="@+id/clear_thumbnails_option"
                         style="@style/OptionRow"
+                        android:layout_marginTop="8dp"
                         android:text="@string/thumbnail_clear_all" />
-
-                    <TextView
-                        android:id="@+id/thumbnail_progress"
-                        android:layout_width="match_parent"
-                        android:layout_height="28dp"
-                        android:gravity="center_vertical"
-                        android:includeFontPadding="false"
-                        android:textColor="@color/muted"
-                        android:textSize="10sp"
-                        android:visibility="gone" />
-
-                    <Button
-                        android:id="@+id/cancel_thumbnail_scan"
-                        style="@style/OptionRow"
-                        android:text="@string/cancel"
-                        android:visibility="gone" />
                 </LinearLayout>
             </ScrollView>
         </LinearLayout>
