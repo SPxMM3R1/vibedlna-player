@@ -114,6 +114,8 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="#B8000000"
+        android:clickable="true"
+        android:focusable="false"
         android:visibility="gone" />
 
     <LinearLayout
@@ -170,7 +172,10 @@
                         android:id="@+id/server_option"
                         style="@style/OptionRow"
                         android:drawableStart="@drawable/ic_server_small"
+                        android:nextFocusDown="@id/discover_option"
+                        android:nextFocusLeft="@id/server_option"
                         android:nextFocusRight="@id/clear_thumbnails_option"
+                        android:nextFocusUp="@id/server_option"
                         android:text="@string/dlna_server" />
 
                     <TextView
@@ -180,7 +185,10 @@
                     <Button
                         android:id="@+id/discover_option"
                         style="@style/OptionRow"
+                        android:nextFocusDown="@id/discover_option"
+                        android:nextFocusLeft="@id/discover_option"
                         android:nextFocusRight="@id/clear_thumbnails_option"
+                        android:nextFocusUp="@id/server_option"
                         android:text="@string/search_servers" />
 
                     <Button
@@ -234,6 +242,10 @@
                         android:id="@+id/clear_thumbnails_option"
                         style="@style/OptionRow"
                         android:layout_marginTop="8dp"
+                        android:nextFocusDown="@id/clear_thumbnails_option"
+                        android:nextFocusLeft="@id/server_option"
+                        android:nextFocusRight="@id/clear_thumbnails_option"
+                        android:nextFocusUp="@id/clear_thumbnails_option"
                         android:text="@string/thumbnail_clear_all" />
                 </LinearLayout>
             </ScrollView>

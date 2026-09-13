@@ -19,6 +19,7 @@ import android.util.Log;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewParent;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
@@ -503,6 +504,7 @@ public final class MainActivity extends Activity {
     @Override
     @SuppressLint("GestureBackNavigation")
     public boolean dispatchKeyEvent(KeyEvent event) {
+        if (handleOptionsFocus(event)) return true;
         if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
             int keyCode = event.getKeyCode();
             if (keyCode == KeyEvent.KEYCODE_BACK) {
@@ -537,6 +539,54 @@ public final class MainActivity extends Activity {
             }
         }
         return super.dispatchKeyEvent(event);
+    }
+
+    private boolean handleOptionsFocus(KeyEvent event) {
+        if (optionsPanel.getVisibility() != View.VISIBLE) return false;
+
+        View focused = getCurrentFocus();
+        if (!isInsideOptionsPanel(focused)) {
+            serverOption.requestFocus();
+        }
+
+        int direction = optionsDirection(event.getKeyCode());
+        if (direction == 0) return false;
+        if (event.getAction() != KeyEvent.ACTION_DOWN) return true;
+
+        View current = optionsPanel.findFocus();
+        if (!isInsideOptionsPanel(current)) {
+            serverOption.requestFocus();
+            return true;
+        }
+        View next = current.focusSearch(direction);
+        if (isInsideOptionsPanel(next)) next.requestFocus();
+        return true;
+    }
+
+    private boolean isInsideOptionsPanel(View candidate) {
+        View current = candidate;
+        while (current != null) {
+            if (current == optionsPanel) return true;
+            ViewParent parent = current.getParent();
+            if (!(parent instanceof View)) return false;
+            current = (View) parent;
+        }
+        return false;
+    }
+
+    private static int optionsDirection(int keyCode) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_UP:
+                return View.FOCUS_UP;
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                return View.FOCUS_DOWN;
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+                return View.FOCUS_LEFT;
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+                return View.FOCUS_RIGHT;
+            default:
+                return 0;
+        }
     }
 
     private void registerBackCallback() {
