@@ -13,6 +13,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -410,8 +411,18 @@ final class ThumbnailRepository {
     }
 
     static boolean isRemoteArtwork(Uri artworkUri) {
-        if (artworkUri == null) return false;
-        String scheme = artworkUri.getScheme();
+        return artworkUri != null && isRemoteArtworkUrl(artworkUri.toString());
+    }
+
+    static boolean isRemoteArtworkUrl(String artworkUrl) {
+        if (artworkUrl == null) return false;
+        URI parsed;
+        try {
+            parsed = URI.create(artworkUrl);
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
+        String scheme = parsed.getScheme();
         if (!("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))) {
             return false;
         }
@@ -420,13 +431,20 @@ final class ThumbnailRepository {
 
     static String cacheName(VideoItem video) {
         Uri artworkUri = video.getArtworkUri();
-        String artwork = artworkUri == null ? "" : artworkUri.toString();
+        return cacheNameForArtwork(
+                video.getServerUdn(),
+                video.getId(),
+                artworkUri == null ? "" : artworkUri.toString()
+        );
+    }
+
+    static String cacheNameForArtwork(String serverUdn, String id, String artwork) {
         String variant = artwork.isBlank()
                 ? "no-artwork"
                 : ARTWORK_VARIANT + sha256(artwork);
         return ThumbnailCacheKey.name(
-                video.getServerUdn(),
-                video.getId(),
+                serverUdn,
+                id,
                 variant
         );
     }

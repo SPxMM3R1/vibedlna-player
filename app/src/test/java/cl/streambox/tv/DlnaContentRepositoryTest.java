@@ -3,8 +3,6 @@ package cl.streambox.tv;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
-import android.net.Uri;
-
 import java.net.URI;
 
 import org.junit.Test;
@@ -112,9 +110,9 @@ public final class DlnaContentRepositoryTest {
 
         DIDLContent content = new DIDLParser().parse(didl);
         Item item = content.getItems().get(0);
-        assertNull(DlnaContentRepository.artworkUri(
+        assertNull(DlnaContentRepository.announcedArtworkUri(
                 item,
-                Uri.parse("http://192.168.1.20:43123/media/F%3Avideo/video.mp4")
+                URI.create("http://192.168.1.20:43123/media/F%3Avideo/video.mp4")
         ));
     }
 }

@@ -4,33 +4,31 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
-import android.net.Uri;
-
 import org.junit.Test;
 
 public final class ThumbnailRepositoryTest {
     @Test
     public void acceptsOnlyAnnouncedRemoteArtwork() {
-        assertTrue(ThumbnailRepository.isRemoteArtwork(
-                Uri.parse("http://192.168.1.20:43123/thumbnail/video.jpg")
+        assertTrue(ThumbnailRepository.isRemoteArtworkUrl(
+                "http://192.168.1.20:43123/thumbnail/video.jpg"
         ));
-        assertTrue(ThumbnailRepository.isRemoteArtwork(
-                Uri.parse("https://192.168.1.20:43123/images/video.webp")
+        assertTrue(ThumbnailRepository.isRemoteArtworkUrl(
+                "https://192.168.1.20:43123/images/video.webp"
         ));
-        assertFalse(ThumbnailRepository.isRemoteArtwork(
-                Uri.parse("file:///thumbnail/video.jpg")
+        assertFalse(ThumbnailRepository.isRemoteArtworkUrl(
+                "file:///thumbnail/video.jpg"
         ));
-        assertFalse(ThumbnailRepository.isRemoteArtwork(null));
+        assertFalse(ThumbnailRepository.isRemoteArtworkUrl(null));
     }
 
     @Test
     public void cacheIdentityIncludesTheExactAnnouncedArtworkUrl() {
-        VideoItem first = video("http://192.168.1.20:43123/thumbnail/first.jpg");
-        VideoItem second = video("http://192.168.1.20:43123/thumbnail/second.jpg");
+        String first = "http://192.168.1.20:43123/thumbnail/first.jpg";
+        String second = "http://192.168.1.20:43123/thumbnail/second.jpg";
 
         assertNotEquals(
-                ThumbnailRepository.cacheName(first),
-                ThumbnailRepository.cacheName(second)
+                ThumbnailRepository.cacheNameForArtwork("uuid:server", "video-1", first),
+                ThumbnailRepository.cacheNameForArtwork("uuid:server", "video-1", second)
         );
     }
 
@@ -42,18 +40,5 @@ public final class ThumbnailRepositoryTest {
                             || source == ThumbnailRepository.Source.NONE
             );
         }
-    }
-
-    private static VideoItem video(String artworkUrl) {
-        return VideoItem.video(
-                "uuid:server",
-                "video-1",
-                "0",
-                "video.mp4",
-                Uri.parse("http://192.168.1.20:43123/media/video-1/video.mp4"),
-                Uri.parse(artworkUrl),
-                "video/mp4",
-                0L
-        );
     }
 }
