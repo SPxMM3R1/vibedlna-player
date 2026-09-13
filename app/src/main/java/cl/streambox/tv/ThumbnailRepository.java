@@ -67,7 +67,7 @@ final class ThumbnailRepository {
     private static final int WIDTH = 480;
     private static final int HEIGHT = 270;
     private static final int MAX_PREFETCH_ITEMS = 24;
-    private static final String USER_AGENT = "VibeDLNA/0.3.11";
+    private static final String USER_AGENT = "VibeDLNA/0.3.12";
     private static final String SERVER_FALLBACK_VARIANT = "server-fallback-50";
     private static final String SERVER_ARTWORK_VARIANT = "server-artwork-";
 
