@@ -596,7 +596,7 @@ public final class MainActivity extends Activity {
         VideoItem video = batch.videos.get(batch.nextIndex++);
         batch.active++;
         if (batch.regenerate) thumbnailRepository.evict(video);
-        thumbnailRepository.load(video, bitmap -> {
+        thumbnailRepository.load(video, (bitmap, source) -> {
             if (batch.generation != thumbnailScanGeneration) return;
             batch.active--;
             batch.completed++;
