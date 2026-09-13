@@ -59,7 +59,7 @@ final class ThumbnailRepository {
     private static final String TAG = "VibeThumbnails";
     private static final int WIDTH = 480;
     private static final int HEIGHT = 270;
-    private static final String USER_AGENT = "VibeDLNA/0.3.10";
+    private static final String USER_AGENT = "VibeDLNA/0.3.11";
     private static final String SERVER_FALLBACK_VARIANT = "server-fallback-50";
     private static final String SERVER_ARTWORK_VARIANT = "server-artwork-";
 
