@@ -30,7 +30,30 @@ import java.util.concurrent.Executors;
 
 final class ThumbnailRepository {
     interface Callback {
-        void onLoaded(Bitmap bitmap);
+        void onLoaded(Bitmap bitmap, Source source);
+    }
+
+    enum Source {
+        SERVER("SERVIDOR"),
+        LOCAL("LOCAL"),
+        LOCAL_FALLBACK("RESPALDO LOCAL"),
+        NONE("SIN MINIATURA");
+
+        final String label;
+
+        Source(String label) {
+            this.label = label;
+        }
+    }
+
+    private static final class LoadedThumbnail {
+        final Bitmap bitmap;
+        final Source source;
+
+        LoadedThumbnail(Bitmap bitmap, Source source) {
+            this.bitmap = bitmap;
+            this.source = source;
+        }
     }
 
     private static final String TAG = "VibeThumbnails";
@@ -44,20 +67,22 @@ final class ThumbnailRepository {
     private final File cacheDirectory;
     private final File legacyCacheDirectory;
     private final Handler mainHandler;
-    private final ExecutorService executor = Executors.newFixedThreadPool(2);
+    private final Object executorLock = new Object();
+    private ExecutorService executor = Executors.newFixedThreadPool(2);
     private final Map<String, List<Callback>> inFlight = new HashMap<>();
     private final Map<String, Integer> revisions = new HashMap<>();
     private final Object diskLock = new Object();
-    private final LruCache<String, Bitmap> memoryCache =
-            new LruCache<String, Bitmap>(16 * 1024) {
+    private final LruCache<String, LoadedThumbnail> memoryCache =
+            new LruCache<String, LoadedThumbnail>(16 * 1024) {
                 @Override
-                protected int sizeOf(String key, Bitmap value) {
-                    return Math.max(1, value.getAllocationByteCount() / 1024);
+                protected int sizeOf(String key, LoadedThumbnail value) {
+                    return Math.max(1, value.bitmap.getAllocationByteCount() / 1024);
                 }
             };
 
     private volatile ThumbnailSettings settings;
     private volatile boolean destroyed;
+    private volatile boolean paused;
     private int cacheEpoch;
 
     ThumbnailRepository(
@@ -103,12 +128,14 @@ final class ThumbnailRepository {
         String workKey = cacheName + ":" + requestEpoch + ":" + requestRevision;
         boolean hasServerArtwork = requestSettings.prefersServerArtwork()
                 && video.getArtworkUri() != null;
-        Bitmap memoryBitmap;
+        LoadedThumbnail memoryThumbnail;
         synchronized (memoryCache) {
-            memoryBitmap = memoryCache.get(workKey);
+            memoryThumbnail = memoryCache.get(workKey);
         }
-        if (memoryBitmap != null && !memoryBitmap.isRecycled()) {
-            post(callback, memoryBitmap);
+        if (memoryThumbnail != null
+                && memoryThumbnail.bitmap != null
+                && !memoryThumbnail.bitmap.isRecycled()) {
+            post(callback, memoryThumbnail);
             return;
         }
 
@@ -123,37 +150,76 @@ final class ThumbnailRepository {
             inFlight.put(workKey, callbacks);
         }
 
-        executor.submit(() -> {
-            Bitmap bitmap = loadOrCreate(
-                    video,
-                    requestSettings,
-                    cacheName,
-                    requestEpoch,
-                    requestRevision,
-                    fallbackCacheName,
-                    fallbackRevision
-            );
-            if (bitmap != null && !hasServerArtwork) {
-                synchronized (memoryCache) {
-                    memoryCache.put(workKey, bitmap);
+        ExecutorService worker;
+        synchronized (executorLock) {
+            if (paused || destroyed) {
+                synchronized (inFlight) {
+                    inFlight.remove(workKey);
                 }
+                return;
             }
-            List<Callback> callbacks;
-            synchronized (inFlight) {
-                callbacks = inFlight.remove(workKey);
-            }
-            if (callbacks == null || callbacks.isEmpty()) return;
-            Bitmap loaded = bitmap;
-            mainHandler.post(() -> {
-                if (destroyed) return;
-                for (Callback item : callbacks) item.onLoaded(loaded);
+            worker = executor;
+        }
+        try {
+            worker.submit(() -> {
+                if (paused || destroyed) return;
+                LoadedThumbnail thumbnail = loadOrCreate(
+                        video,
+                        requestSettings,
+                        cacheName,
+                        requestEpoch,
+                        requestRevision,
+                        fallbackCacheName,
+                        fallbackRevision
+                );
+                if (paused || destroyed) return;
+                if (thumbnail.bitmap != null && !hasServerArtwork) {
+                    synchronized (memoryCache) {
+                        memoryCache.put(workKey, thumbnail);
+                    }
+                }
+                List<Callback> callbacks;
+                synchronized (inFlight) {
+                    callbacks = inFlight.remove(workKey);
+                }
+                if (callbacks == null || callbacks.isEmpty()) return;
+                LoadedThumbnail loaded = thumbnail;
+                mainHandler.post(() -> {
+                    if (destroyed || paused) return;
+                    for (Callback item : callbacks) item.onLoaded(loaded.bitmap, loaded.source);
+                });
             });
-        });
+        } catch (java.util.concurrent.RejectedExecutionException rejected) {
+            synchronized (inFlight) {
+                inFlight.remove(workKey);
+            }
+        }
     }
 
     void prefetch(List<VideoItem> videos) {
+        if (paused || destroyed) return;
         for (VideoItem video : videos) {
             if (!video.isContainer()) load(video, null);
+        }
+    }
+
+    void pause() {
+        paused = true;
+        synchronized (executorLock) {
+            executor.shutdownNow();
+        }
+        synchronized (inFlight) {
+            inFlight.clear();
+        }
+    }
+
+    void resume() {
+        synchronized (executorLock) {
+            if (destroyed) return;
+            if (executor.isShutdown()) {
+                executor = Executors.newFixedThreadPool(2);
+            }
+            paused = false;
         }
     }
 
@@ -192,7 +258,9 @@ final class ThumbnailRepository {
 
     void destroy() {
         destroyed = true;
-        executor.shutdownNow();
+        synchronized (executorLock) {
+            executor.shutdownNow();
+        }
         synchronized (inFlight) {
             inFlight.clear();
         }
@@ -201,7 +269,7 @@ final class ThumbnailRepository {
         }
     }
 
-    private Bitmap loadOrCreate(
+    private LoadedThumbnail loadOrCreate(
             VideoItem video,
             ThumbnailSettings requestSettings,
             String cacheName,
@@ -212,22 +280,23 @@ final class ThumbnailRepository {
     ) {
         File cached = new File(cacheDirectory, cacheName);
         Bitmap bitmap;
+        boolean hasServerArtwork = requestSettings.prefersServerArtwork()
+                && video.getArtworkUri() != null;
         synchronized (diskLock) {
             bitmap = requestIsCurrent(cacheName, requestEpoch, requestRevision)
                     ? decode(cached)
                     : null;
         }
-        if (bitmap != null) return bitmap;
+        if (bitmap != null) return new LoadedThumbnail(bitmap, hasServerArtwork
+                ? Source.SERVER : Source.LOCAL);
 
-        boolean hasServerArtwork = requestSettings.prefersServerArtwork()
-                && video.getArtworkUri() != null;
         if (hasServerArtwork) {
             bitmap = downloadArtwork(video.getArtworkUri());
             if (bitmap != null) {
                 Bitmap cropped = centerCrop(bitmap, WIDTH, HEIGHT);
                 if (cropped != bitmap) bitmap.recycle();
                 saveIfCurrent(cached, cropped, cacheName, requestEpoch, requestRevision);
-                return cropped;
+                return new LoadedThumbnail(cropped, Source.SERVER);
             }
 
             File fallback = new File(cacheDirectory, fallbackCacheName);
@@ -238,7 +307,7 @@ final class ThumbnailRepository {
                         fallbackRevision
                 ) ? decode(fallback) : null;
             }
-            if (bitmap != null) return bitmap;
+            if (bitmap != null) return new LoadedThumbnail(bitmap, Source.LOCAL_FALLBACK);
 
             if (requestSettings.generatedPercentage() == 50) {
                 File legacy = new File(legacyCacheDirectory, legacyCacheName(video));
@@ -251,10 +320,10 @@ final class ThumbnailRepository {
                             requestEpoch,
                             fallbackRevision
                     );
-                    return bitmap;
+                    return new LoadedThumbnail(bitmap, Source.LOCAL_FALLBACK);
                 }
             }
-            return createFrame(
+            bitmap = createFrame(
                     video,
                     requestSettings.generatedPercentage(),
                     fallback,
@@ -262,16 +331,17 @@ final class ThumbnailRepository {
                     requestEpoch,
                     fallbackRevision
             );
+            return new LoadedThumbnail(bitmap, bitmap == null ? Source.NONE : Source.LOCAL_FALLBACK);
         }
         if (requestSettings.generatedPercentage() == 50) {
             File legacy = new File(legacyCacheDirectory, legacyCacheName(video));
             bitmap = decode(legacy);
             if (bitmap != null) {
                 saveIfCurrent(cached, bitmap, cacheName, requestEpoch, requestRevision);
-                return bitmap;
+                return new LoadedThumbnail(bitmap, Source.LOCAL);
             }
         }
-        return createFrame(
+        bitmap = createFrame(
                 video,
                 requestSettings.generatedPercentage(),
                 cached,
@@ -279,6 +349,7 @@ final class ThumbnailRepository {
                 requestEpoch,
                 requestRevision
         );
+        return new LoadedThumbnail(bitmap, bitmap == null ? Source.NONE : Source.LOCAL);
     }
 
     private Bitmap downloadArtwork(Uri artworkUri) {
@@ -358,14 +429,14 @@ final class ThumbnailRepository {
         }
     }
 
-    private void post(Callback callback, Bitmap bitmap) {
+    private void post(Callback callback, LoadedThumbnail thumbnail) {
         if (callback == null) return;
         if (Looper.myLooper() == Looper.getMainLooper()) {
-            if (!destroyed) callback.onLoaded(bitmap);
+            if (!destroyed) callback.onLoaded(thumbnail.bitmap, thumbnail.source);
             return;
         }
         mainHandler.post(() -> {
-            if (!destroyed) callback.onLoaded(bitmap);
+            if (!destroyed) callback.onLoaded(thumbnail.bitmap, thumbnail.source);
         });
     }
 

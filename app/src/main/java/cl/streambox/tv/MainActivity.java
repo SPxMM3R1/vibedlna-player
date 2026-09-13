@@ -596,7 +596,7 @@ public final class MainActivity extends Activity {
         VideoItem video = batch.videos.get(batch.nextIndex++);
         batch.active++;
         if (batch.regenerate) thumbnailRepository.evict(video);
-        thumbnailRepository.load(video, bitmap -> {
+        thumbnailRepository.load(video, (bitmap, source) -> {
             if (batch.generation != thumbnailScanGeneration) return;
             batch.active--;
             batch.completed++;
@@ -762,12 +762,16 @@ public final class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        thumbnailRepository.resume();
+        adapter.refreshThumbnails();
+        thumbnailRepository.prefetch(entries);
         if (appUpdater != null) appUpdater.onHostResume();
         enterImmersiveMode();
     }
 
     @Override
     protected void onPause() {
+        thumbnailRepository.pause();
         if (appUpdater != null) appUpdater.onHostPause();
         super.onPause();
     }

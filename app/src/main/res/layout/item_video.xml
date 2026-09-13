@@ -30,6 +30,21 @@
             android:alpha="0.45"
             android:contentDescription="@null"
             android:src="@drawable/ic_play_outline" />
+
+        <TextView
+            android:id="@+id/thumbnail_source"
+            android:layout_width="wrap_content"
+            android:layout_height="18dp"
+            android:layout_gravity="bottom|start"
+            android:background="@drawable/thumbnail_source_badge"
+            android:includeFontPadding="false"
+            android:paddingStart="5dp"
+            android:paddingTop="2dp"
+            android:paddingEnd="5dp"
+            android:paddingBottom="2dp"
+            android:textColor="@color/white"
+            android:textSize="8sp"
+            android:textStyle="bold" />
     </FrameLayout>
 
     <TextView
