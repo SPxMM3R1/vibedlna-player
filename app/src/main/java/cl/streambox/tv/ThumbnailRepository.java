@@ -40,14 +40,8 @@ final class ThumbnailRepository {
     }
 
     enum Source {
-        SERVER("SERVIDOR"),
-        NONE("SIN MINIATURA");
-
-        final String label;
-
-        Source(String label) {
-            this.label = label;
-        }
+        SERVER,
+        NONE
     }
 
     private static final class LoadedThumbnail {
