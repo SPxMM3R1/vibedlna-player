@@ -415,9 +415,7 @@ final class ThumbnailRepository {
         if (!("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))) {
             return false;
         }
-        String path = artworkUri.getPath();
-        return path == null
-                || !path.toLowerCase(Locale.ROOT).contains("/thumbnail/request");
+        return true;
     }
 
     static String cacheName(VideoItem video) {

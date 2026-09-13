@@ -99,18 +99,6 @@ public final class DlnaContentRepositoryTest {
     }
 
     @Test
-    public void rejectsOnDemandThumbnailEndpointEvenWhenAnnounced() {
-        assertNull(DlnaContentRepository.resolveArtworkUri(
-                URI.create("http://192.168.1.20:43123/thumbnail/request"),
-                URI.create("http://192.168.1.20:43123/media/F%3Avideo/video.mp4")
-        ));
-        assertNull(DlnaContentRepository.resolveArtworkUri(
-                URI.create("http://192.168.1.20:43123/thumbnail/request/F%3Avideo.jpg"),
-                URI.create("http://192.168.1.20:43123/media/F%3Avideo/video.mp4")
-        ));
-    }
-
-    @Test
     public void doesNotInventArtworkWhenServerOmitsAlbumArt() throws Exception {
         String didl = "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\""
                 + " xmlns:dc=\"http://purl.org/dc/elements/1.1/\""

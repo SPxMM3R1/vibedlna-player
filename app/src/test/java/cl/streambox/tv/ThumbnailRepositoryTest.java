@@ -21,12 +21,6 @@ public final class ThumbnailRepositoryTest {
                 Uri.parse("file:///thumbnail/video.jpg")
         ));
         assertFalse(ThumbnailRepository.isRemoteArtwork(null));
-        assertFalse(ThumbnailRepository.isRemoteArtwork(
-                Uri.parse("http://192.168.1.20:43123/thumbnail/request")
-        ));
-        assertFalse(ThumbnailRepository.isRemoteArtwork(
-                Uri.parse("http://192.168.1.20:43123/thumbnail/request/video.jpg")
-        ));
     }
 
     @Test

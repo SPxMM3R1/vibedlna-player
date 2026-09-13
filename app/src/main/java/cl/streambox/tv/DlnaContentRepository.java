@@ -291,11 +291,6 @@ final class DlnaContentRepository {
                     && !"https".equalsIgnoreCase(scheme)) {
                 return null;
             }
-            String path = resolved.getRawPath();
-            if (path != null
-                    && path.toLowerCase(Locale.ROOT).contains("/thumbnail/request")) {
-                return null;
-            }
             return resolved.toString().isBlank() ? null : resolved;
         } catch (Exception ignored) {
             return null;
