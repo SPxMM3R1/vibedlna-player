@@ -109,7 +109,7 @@ public final class DlnaContentRepositoryTest {
     @Test
     public void doesNotDeriveThumbnailForUnrelatedMediaUri() {
         assertNull(DlnaContentRepository.deriveThumbnailRequestUri(
-                Uri.parse("http://192.168.1.20:43123/content/video.mp4")
+                URI.create("http://192.168.1.20:43123/content/video.mp4")
         ));
     }
 }
