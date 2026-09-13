@@ -22,10 +22,6 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
     private final ThumbnailRepository thumbnails;
     private final Listener listener;
 
-    private static final int GRID_COLUMNS = 4;
-    private static final int GRID_ITEM_SPACING_DP = 7;
-    private static final int MINIMUM_CARD_WIDTH_DP = 180;
-
     VideoAdapter(ThumbnailRepository thumbnails, Listener listener) {
         this.thumbnails = thumbnails;
         this.listener = listener;
@@ -56,13 +52,31 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
         if (parentWidth <= 0) {
             parentWidth = parent.getResources().getDisplayMetrics().widthPixels;
         }
+        int parentHeight = parent.getMeasuredHeight();
+        if (parentHeight <= 0) {
+            parentHeight = parent.getResources().getDisplayMetrics().heightPixels;
+        }
+        int horizontalSpacing = CardLayoutMath.horizontalSpacingForThreeRows(
+                parentWidth,
+                parentHeight,
+                parent.getPaddingLeft(),
+                parent.getPaddingTop(),
+                parent.getPaddingRight(),
+                parent.getPaddingBottom(),
+                CardLayoutMath.GRID_COLUMNS,
+                CardLayoutMath.GRID_VISIBLE_ROWS,
+                dp(parent, CardLayoutMath.MIN_HORIZONTAL_SPACING_DP),
+                dp(parent, CardLayoutMath.VERTICAL_SPACING_DP),
+                dp(parent, CardLayoutMath.CARD_PADDING_DP) * 2,
+                dp(parent, CardLayoutMath.CARD_PADDING_DP) * 2,
+                dp(parent, CardLayoutMath.VIDEO_TITLE_HEIGHT_DP)
+        );
         int width = CardLayoutMath.cardWidth(
                 parentWidth,
                 parent.getPaddingLeft(),
                 parent.getPaddingRight(),
-                dp(parent, GRID_ITEM_SPACING_DP),
-                GRID_COLUMNS,
-                dp(parent, MINIMUM_CARD_WIDTH_DP)
+                horizontalSpacing,
+                CardLayoutMath.GRID_COLUMNS
         );
         view.setLayoutParams(new RecyclerView.LayoutParams(
                 width,
@@ -70,7 +84,10 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
         ));
         View thumbnailFrame = view.findViewById(R.id.thumbnail_frame);
         ViewGroup.LayoutParams thumbnailLayout = thumbnailFrame.getLayoutParams();
-        thumbnailLayout.height = CardLayoutMath.thumbnailHeight(width, dp(parent, 6));
+        thumbnailLayout.height = CardLayoutMath.thumbnailHeight(
+                width,
+                dp(parent, CardLayoutMath.CARD_PADDING_DP) * 2
+        );
         thumbnailFrame.setLayoutParams(thumbnailLayout);
         return new VideoHolder(view);
     }

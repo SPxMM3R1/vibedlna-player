@@ -131,7 +131,10 @@ public final class MainActivity extends Activity {
 
     private void configureGrid() {
         adapter = new VideoAdapter(thumbnailRepository, this::openEntry);
-        GridLayoutManager layoutManager = new GridLayoutManager(this, 4);
+        GridLayoutManager layoutManager = new GridLayoutManager(
+                this,
+                CardLayoutMath.GRID_COLUMNS
+        );
         // Do not ask RecyclerView to bind off-screen cards just to load their
         // artwork. The repository loads only cards actually displayed.
         layoutManager.setItemPrefetchEnabled(false);
@@ -145,8 +148,30 @@ public final class MainActivity extends Activity {
                     @NonNull RecyclerView parent,
                     @NonNull RecyclerView.State state
             ) {
-                int horizontalSpacing = dp(7);
-                int verticalSpacing = dp(3);
+                int parentWidth = parent.getMeasuredWidth();
+                if (parentWidth <= 0) {
+                    parentWidth = getResources().getDisplayMetrics().widthPixels;
+                }
+                int parentHeight = parent.getMeasuredHeight();
+                if (parentHeight <= 0) {
+                    parentHeight = getResources().getDisplayMetrics().heightPixels;
+                }
+                int horizontalSpacing = CardLayoutMath.horizontalSpacingForThreeRows(
+                        parentWidth,
+                        parentHeight,
+                        parent.getPaddingLeft(),
+                        parent.getPaddingTop(),
+                        parent.getPaddingRight(),
+                        parent.getPaddingBottom(),
+                        CardLayoutMath.GRID_COLUMNS,
+                        CardLayoutMath.GRID_VISIBLE_ROWS,
+                        dp(CardLayoutMath.MIN_HORIZONTAL_SPACING_DP),
+                        dp(CardLayoutMath.VERTICAL_SPACING_DP),
+                        dp(CardLayoutMath.CARD_PADDING_DP) * 2,
+                        dp(CardLayoutMath.CARD_PADDING_DP) * 2,
+                        dp(CardLayoutMath.VIDEO_TITLE_HEIGHT_DP)
+                );
+                int verticalSpacing = dp(CardLayoutMath.VERTICAL_SPACING_DP);
                 outRect.set(
                         horizontalSpacing,
                         verticalSpacing,
