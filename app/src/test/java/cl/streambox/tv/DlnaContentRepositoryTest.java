@@ -65,6 +65,29 @@ public final class DlnaContentRepositoryTest {
     }
 
     @Test
+    public void readsDurationAnnouncedByVibeDlna() throws Exception {
+        // Shape emitted by VibeDLNA DlnaXml.BuildDidl after the warmup measured the file.
+        String didl = "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\""
+                + " xmlns:dc=\"http://purl.org/dc/elements/1.1/\""
+                + " xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\">"
+                + "<item id=\"F:ZmEzOWMxZDJlMGI0NWE3N3x2aWRlby5tcDQ\" parentID=\"R:fa39c1d2e0b45a77\" restricted=\"1\">"
+                + "<dc:title>video</dc:title>"
+                + "<upnp:class>object.item.videoItem</upnp:class>"
+                + "<res protocolInfo=\"http-get:*:video/mp4:DLNA.ORG_OP=01;DLNA.ORG_FLAGS=01700000000000000000000000000000\""
+                + " size=\"18837323234\" duration=\"1:56:04.223\">"
+                + "http://192.168.1.20:8210/media/F%3AZmEzOWMxZDJlMGI0NWE3N3x2aWRlby5tcDQ/video.mp4</res>"
+                + "<upnp:albumArtURI>http://192.168.1.20:8210/thumbnail/abc.jpg</upnp:albumArtURI>"
+                + "</item></DIDL-Lite>";
+
+        Item item = new DIDLParser().parse(didl).getItems().get(0);
+
+        assertEquals(
+                6_964_000L,
+                DlnaContentRepository.durationMillis(item.getFirstResource().getDuration())
+        );
+    }
+
+    @Test
     public void acceptsAnnouncedServerArtwork() {
         URI artwork = DlnaContentRepository.resolveArtworkUri(
                 URI.create("http://192.168.1.20:43123/thumbnail/abc.jpg"),

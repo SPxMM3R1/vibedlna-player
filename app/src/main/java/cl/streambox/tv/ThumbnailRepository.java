@@ -18,6 +18,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -64,6 +65,9 @@ final class ThumbnailRepository {
     private static final int CONNECT_TIMEOUT_MS = 8_000;
     private static final int READ_TIMEOUT_MS = 15_000;
     private static final String USER_AGENT = "VibeDLNA Player/0.3.12";
+    /* 320x180 JPEG artwork is ~15 KB, so the disk cache stays near 30 MB. */
+    static final int MAX_DISK_FILES = 2_000;
+    private static final int PRUNE_EVERY_SAVES = 32;
 
     private final File cacheDirectory;
     private final File legacyCacheDirectory;
@@ -87,6 +91,7 @@ final class ThumbnailRepository {
     private volatile boolean paused;
     private int cacheEpoch;
     private int requestGeneration;
+    private int savesSincePrune;
 
     ThumbnailRepository(Context context, Handler mainHandler) {
         Context appContext = context.getApplicationContext();
@@ -98,7 +103,7 @@ final class ThumbnailRepository {
 
     /**
      * Returns the identity used by the adapter to reject a late callback.
-     * The identity includes the exact artwork URL announced by the server.
+     * The identity includes the exact announced artwork path (see artworkIdentity).
      */
     String requestKey(VideoItem video) {
         String name = cacheName(video);
@@ -281,6 +286,8 @@ final class ThumbnailRepository {
             bitmap = requestIsCurrent(cacheName, requestEpoch, requestRevision)
                     ? decode(cached)
                     : null;
+            // Recently shown artwork survives pruning.
+            if (bitmap != null) cached.setLastModified(System.currentTimeMillis());
         }
         if (bitmap != null) return new LoadedThumbnail(bitmap, Source.SERVER);
 
@@ -401,6 +408,10 @@ final class ThumbnailRepository {
             if (!requestIsCurrent(cacheName, requestEpoch, requestRevision)
                     || requestGeneration != this.requestGeneration) return;
             save(destination, bitmap);
+            if (++savesSincePrune >= PRUNE_EVERY_SAVES) {
+                savesSincePrune = 0;
+                pruneOldest(cacheDirectory.listFiles(), MAX_DISK_FILES);
+            }
         }
     }
 
@@ -435,12 +446,49 @@ final class ThumbnailRepository {
     static String cacheNameForArtwork(String serverUdn, String id, String artwork) {
         String variant = artwork.isBlank()
                 ? "no-artwork"
-                : ARTWORK_VARIANT + sha256(artwork);
+                : ARTWORK_VARIANT + sha256(artworkIdentity(artwork));
         return ThumbnailCacheKey.name(
                 serverUdn,
                 id,
                 variant
         );
+    }
+
+    /**
+     * The exact announced path and query identify the artwork. Scheme, host
+     * and port are left out because the server address can change between
+     * sessions (DHCP, port fallback) while /thumbnail/&lt;sha256&gt;.jpg keeps
+     * naming the same image. Downloads still use the full announced URL.
+     */
+    static String artworkIdentity(String artwork) {
+        try {
+            URI parsed = URI.create(artwork);
+            if (!parsed.isAbsolute() || parsed.getRawPath() == null) return artwork;
+            String query = parsed.getRawQuery();
+            return query == null ? parsed.getRawPath() : parsed.getRawPath() + "?" + query;
+        } catch (IllegalArgumentException ignored) {
+            return artwork;
+        }
+    }
+
+    /**
+     * Deletes the least recently used cache files beyond {@code maxFiles}.
+     * Returns how many files were removed. Pure java.io so it runs in JVM tests.
+     */
+    static int pruneOldest(File[] files, int maxFiles) {
+        if (files == null || files.length <= maxFiles) return 0;
+        List<File> candidates = new ArrayList<>();
+        for (File file : files) {
+            if (file.isFile()) candidates.add(file);
+        }
+        if (candidates.size() <= maxFiles) return 0;
+        Collections.sort(candidates, (left, right) -> Long.compare(left.lastModified(), right.lastModified()));
+        int removed = 0;
+        int excess = candidates.size() - maxFiles;
+        for (int index = 0; index < excess; index++) {
+            if (candidates.get(index).delete()) removed++;
+        }
+        return removed;
     }
 
     private static Bitmap decode(File file) {

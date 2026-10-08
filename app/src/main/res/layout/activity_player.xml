@@ -15,106 +15,202 @@
         app:show_buffering="always"
         app:use_controller="false" />
 
-    <LinearLayout
-        android:id="@+id/player_clock_panel"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top|end"
-        android:layout_marginTop="22dp"
-        android:layout_marginEnd="34dp"
-        android:background="@drawable/player_clock_panel_background"
-        android:gravity="center"
-        android:paddingStart="10dp"
-        android:paddingTop="7dp"
-        android:paddingEnd="10dp"
-        android:paddingBottom="7dp"
-        android:orientation="vertical">
-
-        <TextView
-            android:id="@+id/player_clock"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:includeFontPadding="false"
-            android:textColor="@color/white"
-            android:textSize="18sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/player_ending_time"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="3dp"
-            android:includeFontPadding="false"
-            android:textColor="@color/muted"
-            android:textSize="10sp"
-            android:visibility="gone" />
-    </LinearLayout>
-
-    <TextView
-        android:id="@+id/player_seek_time"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|end"
-        android:layout_marginEnd="44dp"
-        android:layout_marginBottom="124dp"
-        android:includeFontPadding="false"
-        android:textColor="@color/white"
-        android:textSize="11sp"
-        android:visibility="gone" />
-
-    <SeekBar
-        android:id="@+id/player_seek_bar"
+    <View
+        android:id="@+id/player_scrim"
         android:layout_width="match_parent"
-        android:layout_height="18dp"
+        android:layout_height="380dp"
         android:layout_gravity="bottom"
-        android:layout_marginStart="44dp"
-        android:layout_marginEnd="44dp"
-        android:layout_marginBottom="103dp"
-        android:clickable="false"
-        android:focusable="false"
-        android:max="1000"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:progressDrawable="@drawable/player_seek_progress"
-        android:splitTrack="false"
-        android:thumb="@drawable/player_seek_thumb"
-        android:thumbOffset="0dp"
+        android:background="@drawable/player_scrim"
         android:visibility="gone" />
 
     <LinearLayout
         android:id="@+id/player_overlay"
         android:layout_width="match_parent"
-        android:layout_height="76dp"
+        android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:layout_marginStart="32dp"
-        android:layout_marginEnd="32dp"
-        android:layout_marginBottom="22dp"
-        android:background="@drawable/channel_overlay_background"
-        android:gravity="center_vertical"
+        android:layout_marginStart="48dp"
+        android:layout_marginEnd="48dp"
+        android:layout_marginBottom="40dp"
+        android:gravity="bottom"
         android:orientation="horizontal"
-        android:paddingStart="18dp"
-        android:paddingEnd="18dp">
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/player_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="@color/white"
+                android:textSize="36sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <SeekBar
+                    android:id="@+id/player_seek_bar"
+                    android:layout_width="320dp"
+                    android:layout_height="18dp"
+                    android:clickable="false"
+                    android:focusable="false"
+                    android:max="1000"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:progressDrawable="@drawable/player_seek_progress"
+                    android:splitTrack="false"
+                    android:thumb="@drawable/player_seek_thumb"
+                    android:thumbOffset="0dp"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/player_seek_time"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:includeFontPadding="false"
+                    android:textColor="@color/osd_soft"
+                    android:textSize="15sp"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/player_ending_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:includeFontPadding="false"
+                android:textColor="@color/osd_muted"
+                android:textSize="14sp"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/player_clock_panel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="end"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/player_clock"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif-light"
+                android:gravity="end"
+                android:includeFontPadding="false"
+                android:textColor="@color/white"
+                android:textSize="54sp" />
+
+            <TextView
+                android:id="@+id/player_date"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:includeFontPadding="false"
+                android:textColor="@color/osd_soft"
+                android:textSize="16sp" />
+
+            <TextView
+                android:id="@+id/player_diagnostics"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:gravity="end"
+                android:includeFontPadding="false"
+                android:textColor="@color/osd_muted"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/resume_panel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginStart="48dp"
+        android:layout_marginEnd="48dp"
+        android:layout_marginBottom="56dp"
+        android:orientation="vertical"
+        android:visibility="gone">
 
         <TextView
-            android:id="@+id/player_title"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:ellipsize="end"
-            android:gravity="center_vertical"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:includeFontPadding="false"
-            android:maxLines="1"
-            android:textColor="@color/white"
-            android:textSize="17sp"
+            android:letterSpacing="0.08"
+            android:text="@string/resume_kicker"
+            android:textColor="@color/cyan"
+            android:textSize="12sp"
             android:textStyle="bold" />
 
         <TextView
-            android:id="@+id/player_diagnostics"
-            android:layout_width="230dp"
+            android:id="@+id/resume_title"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center"
+            android:layout_marginTop="8dp"
+            android:ellipsize="end"
             android:includeFontPadding="false"
-            android:textColor="@color/muted"
-            android:textSize="11sp" />
+            android:maxLines="2"
+            android:textColor="@color/white"
+            android:textSize="40sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/resume_description"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:includeFontPadding="false"
+            android:textColor="@color/osd_soft"
+            android:textSize="16sp" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="22dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/resume_continue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/pill_button"
+                android:includeFontPadding="false"
+                android:minHeight="0dp"
+                android:minWidth="0dp"
+                android:nextFocusRight="@id/resume_restart"
+                android:textAllCaps="false"
+                android:textColor="@color/pill_text"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/resume_restart"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:background="@drawable/pill_button"
+                android:includeFontPadding="false"
+                android:minHeight="0dp"
+                android:minWidth="0dp"
+                android:nextFocusLeft="@id/resume_continue"
+                android:text="@string/resume_restart"
+                android:textAllCaps="false"
+                android:textColor="@color/pill_text"
+                android:textSize="16sp" />
+        </LinearLayout>
     </LinearLayout>
 </FrameLayout>

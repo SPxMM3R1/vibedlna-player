@@ -43,4 +43,10 @@
     <string name="update_permission_required">Activa “Permitir desde esta fuente” y vuelve para continuar.</string>
     <string name="update_permission_unavailable">Abre los ajustes del sistema y permite que VibeDLNA Player instale aplicaciones.</string>
     <string name="retry">Reintentar</string>
+    <string name="resume_kicker">REANUDAR</string>
+    <string name="resume_saved_at">Lo dejaste en %1$s</string>
+    <string name="resume_saved_minutes">hace %1$d min</string>
+    <string name="resume_saved_now">hace un momento</string>
+    <string name="resume_continue">Reanudar desde %1$s</string>
+    <string name="resume_restart">Desde el inicio</string>
 </resources>

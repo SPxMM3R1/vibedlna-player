@@ -13,7 +13,8 @@
         android:id="@+id/thumbnail_frame"
         android:layout_width="match_parent"
         android:layout_height="112dp"
-        android:background="#FF10171A">
+        android:background="@drawable/thumb_background"
+        android:clipToOutline="true">
 
         <ImageView
             android:id="@+id/video_thumbnail"
@@ -31,6 +32,46 @@
             android:contentDescription="@null"
             android:src="@drawable/ic_play_outline" />
 
+        <TextView
+            android:id="@+id/video_duration"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="6dp"
+            android:layout_marginBottom="7dp"
+            android:background="@drawable/duration_chip_background"
+            android:includeFontPadding="false"
+            android:paddingStart="5dp"
+            android:paddingTop="3dp"
+            android:paddingEnd="5dp"
+            android:paddingBottom="3dp"
+            android:textColor="@color/white"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:id="@+id/video_progress_track"
+            android:layout_width="match_parent"
+            android:layout_height="3dp"
+            android:layout_gravity="bottom"
+            android:orientation="horizontal"
+            android:visibility="gone"
+            android:weightSum="1000">
+
+            <View
+                android:id="@+id/video_progress_fill"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:background="@color/cyan" />
+
+            <View
+                android:id="@+id/video_progress_rest"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:background="#33FFFFFF" />
+        </LinearLayout>
+
     </FrameLayout>
 
     <TextView
@@ -44,7 +85,7 @@
         android:paddingStart="6dp"
         android:paddingEnd="6dp"
         android:textColor="@color/white"
-        android:textSize="12sp"
+        android:textSize="13sp"
         android:textStyle="bold" />
 
     <LinearLayout
@@ -74,7 +115,7 @@
             android:includeFontPadding="false"
             android:maxLines="2"
             android:textColor="@color/white"
-            android:textSize="11sp"
+            android:textSize="12sp"
             android:textStyle="bold" />
     </LinearLayout>
 </LinearLayout>

@@ -31,6 +31,36 @@
         android:textSize="14sp"
         android:textStyle="bold" />
 
+    <TextView
+        android:id="@+id/header_folder"
+        android:layout_width="wrap_content"
+        android:layout_height="34dp"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="18dp"
+        android:ellipsize="end"
+        android:gravity="center_vertical"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:maxWidth="520dp"
+        android:textColor="@color/white"
+        android:textSize="15sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/header_clock"
+        android:layout_width="wrap_content"
+        android:layout_height="34dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="18dp"
+        android:layout_marginEnd="68dp"
+        android:background="@drawable/clock_box_background"
+        android:gravity="center_vertical"
+        android:includeFontPadding="false"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:textColor="@color/osd_soft"
+        android:textSize="14sp" />
+
     <Button
         android:id="@+id/options_button"
         android:layout_width="34dp"
@@ -39,6 +69,7 @@
         android:layout_marginTop="18dp"
         android:layout_marginEnd="22dp"
         android:background="@drawable/focus_button_compact"
+        android:textColor="@color/pill_text"
         android:contentDescription="@string/options"
         android:drawableStart="@drawable/ic_settings_small"
         android:focusable="true"
@@ -104,7 +135,7 @@
             android:minHeight="0dp"
             android:minWidth="0dp"
             android:text="@string/search_again"
-            android:textColor="@color/white"
+            android:textColor="@color/pill_text"
             android:textSize="11sp"
             android:visibility="gone" />
     </LinearLayout>
@@ -164,7 +195,7 @@
                         android:layout_height="22dp"
                         android:includeFontPadding="false"
                         android:text="@string/library_section"
-                        android:textColor="@color/cyan"
+                        android:textColor="@color/osd_muted"
                         android:textSize="11sp"
                         android:textStyle="bold" />
 
@@ -225,7 +256,7 @@
                         android:layout_height="22dp"
                         android:includeFontPadding="false"
                         android:text="@string/thumbnail_section"
-                        android:textColor="@color/cyan"
+                        android:textColor="@color/osd_muted"
                         android:textSize="11sp"
                         android:textStyle="bold" />
 

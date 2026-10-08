@@ -43,7 +43,7 @@
         android:minHeight="0dp"
         android:minWidth="0dp"
         android:text="@string/cancel"
-        android:textColor="@color/white"
+        android:textColor="@color/pill_text"
         android:textSize="8sp" />
 
     <Button
@@ -56,6 +56,6 @@
         android:minHeight="0dp"
         android:minWidth="0dp"
         android:text="@string/delete"
-        android:textColor="@color/white"
+        android:textColor="@color/pill_text"
         android:textSize="8sp" />
 </LinearLayout>
