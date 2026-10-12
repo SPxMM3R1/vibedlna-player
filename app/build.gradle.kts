@@ -22,8 +22,8 @@ android {
         applicationId = "cl.vibedlna.player"
         minSdk = 23
         targetSdk = 36
-        versionCode = 19
-        versionName = "0.3.16"
+        versionCode = 20
+        versionName = "0.3.17"
     }
 
     buildTypes {

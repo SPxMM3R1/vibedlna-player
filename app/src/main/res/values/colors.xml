@@ -8,12 +8,4 @@
     <color name="red">#FF5252</color>
     <color name="white">#FFFFFF</color>
     <color name="muted">#B8C4C9</color>
-    <!-- Estilo VibeM3U: foco blanco sólido con texto oscuro, filas y píldoras de vidrio. -->
-    <color name="ink">#021015</color>
-    <color name="glass_row">#0FFFFFFF</color>
-    <color name="glass_pill">#1AFFFFFF</color>
-    <color name="osd_muted">#9FB0B7</color>
-    <color name="osd_soft">#C9D3D7</color>
-    <color name="clock_box">#9E3A444A</color>
-    <color name="thumb_placeholder">#10171A</color>
 </resources>

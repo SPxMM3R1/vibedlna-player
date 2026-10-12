@@ -15,30 +15,6 @@ final class PlaybackUiFormatter {
         return String.format(Locale.ROOT, "%02d:%02d", minutes, seconds);
     }
 
-    /**
-     * Duration label for a card: h:mm:ss from one hour on, mm:ss before.
-     * Positions keep using {@link #elapsed} so the player shows the same
-     * accumulated minutes it always has.
-     */
-    static String timecode(long milliseconds) {
-        long totalSeconds = Math.max(0L, milliseconds) / 1_000L;
-        long hours = totalSeconds / 3_600L;
-        long minutes = (totalSeconds % 3_600L) / 60L;
-        long seconds = totalSeconds % 60L;
-        return hours > 0L
-                ? String.format(Locale.ROOT, "%d:%02d:%02d", hours, minutes, seconds)
-                : String.format(Locale.ROOT, "%02d:%02d", minutes, seconds);
-    }
-
-    static long minutesSince(long nowMs, long thenMs) {
-        return Math.max(0L, nowMs - thenMs) / 60_000L;
-    }
-
-    static String capitalized(String text) {
-        if (text == null || text.isEmpty()) return "";
-        return Character.toUpperCase(text.charAt(0)) + text.substring(1);
-    }
-
     static String positionAndDuration(long positionMs, long durationMs) {
         return elapsed(Math.min(Math.max(0L, positionMs), durationMs))
                 + " / "

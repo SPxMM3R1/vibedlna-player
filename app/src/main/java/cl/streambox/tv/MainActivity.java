@@ -34,21 +34,17 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
     private static final String TAG = "VibeDlnaMain";
-    private static final long CLOCK_INTERVAL_MS = 30_000L;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService dlnaExecutor = Executors.newFixedThreadPool(2);
     private final ExecutorService updateExecutor = Executors.newSingleThreadExecutor();
@@ -71,15 +67,6 @@ public final class MainActivity extends Activity {
     private TextView serverValue;
     private TextView folderValue;
     private Button clearThumbnailsOption;
-    private TextView headerFolder;
-    private TextView headerClock;
-    private final Runnable clockTick = new Runnable() {
-        @Override
-        public void run() {
-            updateClock();
-            mainHandler.postDelayed(this, CLOCK_INTERVAL_MS);
-        }
-    };
 
     private LibraryPreferences preferences;
     private DlnaDiscovery discovery;
@@ -131,8 +118,6 @@ public final class MainActivity extends Activity {
         serverValue = findViewById(R.id.server_value);
         folderValue = findViewById(R.id.folder_value);
         clearThumbnailsOption = findViewById(R.id.clear_thumbnails_option);
-        headerFolder = findViewById(R.id.header_folder);
-        headerClock = findViewById(R.id.header_clock);
         TextView wordmark = findViewById(R.id.app_wordmark);
         SpannableString wordmarkText = new SpannableString("VibeDLNA Player");
         wordmarkText.setSpan(
@@ -145,11 +130,7 @@ public final class MainActivity extends Activity {
     }
 
     private void configureGrid() {
-        adapter = new VideoAdapter(
-                thumbnailRepository,
-                new PlaybackResumeStore(this),
-                this::openEntry
-        );
+        adapter = new VideoAdapter(thumbnailRepository, this::openEntry);
         GridLayoutManager layoutManager = new GridLayoutManager(
                 this,
                 CardLayoutMath.GRID_COLUMNS
@@ -459,7 +440,6 @@ public final class MainActivity extends Activity {
         libraryProgress.setVisibility(View.GONE);
         searchButton.setVisibility(View.VISIBLE);
         searchButton.requestFocus();
-        updateHeader();
         updateOptionValues();
     }
 
@@ -475,22 +455,7 @@ public final class MainActivity extends Activity {
     }
 
     private void updateHeader() {
-        // Solo el nombre de la carpeta actual: el resto del contexto lo dan las tarjetas.
-        if (headerFolder == null) return;
-        if (currentServer == null) {
-            headerFolder.setText("");
-            return;
-        }
-        headerFolder.setText("0".equals(currentContainerId)
-                ? currentServer.getFriendlyName()
-                : currentContainerName);
-    }
-
-    private void updateClock() {
-        if (headerClock == null) return;
-        Date now = new Date();
-        String text = new SimpleDateFormat("EEEE d · HH:mm", Locale.getDefault()).format(now);
-        headerClock.setText(PlaybackUiFormatter.capitalized(text));
+        // La biblioteca queda deliberadamente limpia; las tarjetas dan el contexto.
     }
 
     private void showOptions() {
@@ -712,14 +677,10 @@ public final class MainActivity extends Activity {
         adapter.refreshThumbnails();
         if (appUpdater != null) appUpdater.onHostResume();
         enterImmersiveMode();
-        updateClock();
-        mainHandler.removeCallbacks(clockTick);
-        mainHandler.postDelayed(clockTick, CLOCK_INTERVAL_MS);
     }
 
     @Override
     protected void onPause() {
-        mainHandler.removeCallbacks(clockTick);
         thumbnailRepository.pause();
         if (appUpdater != null) appUpdater.onHostPause();
         super.onPause();
