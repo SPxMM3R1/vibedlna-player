@@ -50,7 +50,7 @@ servidor emite por archivo:
 ```
 
 - el player solo muestra items con MIME `video/*` o clase `videoItem` y `res` http/https. audio e imagenes que el servidor comparta se ignoran en el player.
-- `duration` (`H:MM:SS.mmm`) se envia solo cuando el warmup ya la midio con la propiedad System.Media.Duration de Windows; Browse nunca abre el archivo. el player la lee con `durationMillis` y la pasa al reproductor. `resolution` y `bitrate` no se envian.
+- `duration` (`H:MM:SS.mmm`) se envia solo cuando el warmup ya la midio con la propiedad System.Media.Duration de Windows; Browse nunca abre el archivo. el player la lee con `durationMillis` y la pasa al reproductor. desde 1.1.0 tambien `resolution`, `bitrate`, `nrAudioChannels` y `dc:description` cuando el warmup ya los midio (§7).
 - `DLNA.ORG_OP=01` promete rangos: el servidor responde `Range` con 206, `Accept-Ranges: bytes` y `transferMode.dlna.org: Streaming`. el seek del player depende de esto.
 - el servidor no transcodifica; el contenedor y codec deben ser soportados por Media3 en la TV.
 - nombres con espacios: URL escapada (`%20`), `dc:title` legible.
@@ -67,14 +67,39 @@ servidor emite por archivo:
 ## 6. historial del contrato
 
 - 2026-10-06: resueltos los tres riesgos detectados: puerto fijo 8210 con respaldo, ids por clave de ruta, `duration` medida en el warmup; el player cachea por ruta de artwork y poda su cache en disco. publicado como servidor v1.0.9 y player v0.3.16 (etiquetas v1.0.9 / v0.3.16).
+- 2026-11-14: ampliacion 1.1.0 del servidor (§7): datos tecnicos por item, pie de la raiz, identidad del reproductor por User-Agent y actividad (viendo ahora, seguir viendo, reproductores vistos). servidor en desarrollo, sin publicar. el player la implementa en su repo (§7 del player pendiente).
 
 cualquier cambio futuro del contrato: decidirlo con el usuario, implementarlo en el lado que corresponda, agregar pruebas en ambos repos y actualizar este archivo en los dos.
 
-## 7. pendiente
+## 7. ampliacion (1.1.0)
+
+todo es opcional: un cliente que no lo lee sigue funcionando. el servidor lo envia cuando lo sabe; si falta un dato, se omite.
+
+- A. datos tecnicos de cada video o audio. el calentamiento lee las propiedades `System.Video.*` y `System.Audio.*` del Shell junto con la duracion, en la misma entrada de la cache (por sha-256 del contenido). browse nunca abre el archivo.
+  - `res@resolution="1920x1080"` (`System.Video.FrameWidth` x `FrameHeight`).
+  - `res@bitrate` en bytes/s: `System.Video.TotalBitrate` (bits/s) dividido entre 8.
+  - `res@nrAudioChannels`: `System.Audio.ChannelCount`.
+  - `dc:description` del item: `«<codec video> · <codec audio> <canales>»`, por ejemplo `HEVC · E-AC3 5.1` o `H.264 · AAC 2.0`. cada parte aparece solo si se conoce. canales: `1.0`, `2.0`, `5.1`, `7.1`.
+  - codecs: video H.264, HEVC, VP9, AV1, MPEG-2; audio AAC, AC3, E-AC3, DTS, TrueHD, FLAC, Opus, MP3. Windows entrega el codec como FourCC o como subtipo GUID; el servidor lo traduce.
+  - no se envia «10 bit» ni «HDR»: las propiedades de Windows no informan la profundidad de bits.
+  - `System.Video.FrameRate` se mide, pero no se envia: el texto de arriba no tiene campo para fps.
+- B. objeto `0` en BrowseMetadata: `dc:description` = `«N carpetas · M videos»`. N son las carpetas compartidas; M, los videos de la biblioteca, contados en segundo plano. mientras el conteo no termina, solo `«N carpetas»`. miles con punto (`1.284`).
+- C. identidad del reproductor. el Player envia `User-Agent: VibeDLNA-Player/<versión> (<modelo>; <nombre>; id=<8 hex>)`. el servidor lo reconoce por ese formato; VLC y Kodi, por su prefijo (`VLC/3.0.18`, `Kodi/20.1`); cualquier otro cliente se nombra `Reproductor en <ip>`. el registro usa el modelo (`Hisense 65A6`) o la ip.
+- D. actividad, aproximada y deducida por el servidor (no recibe la posicion del Player):
+  - «viendo»: el reproductor pidio un rango de un video en los ultimos 15 s.
+  - posicion = inicio del rango / tamaño del archivo x duracion medida. sin duracion, solo porcentaje.
+  - `%APPDATA%\VibeDLNA\seguir-viendo.json`: una entrada por (`id` del reproductor, archivo). 7 dias, maximo 50, y se quita al pasar del 95 %. solo para reproductores con `id`.
+  - `%APPDATA%\VibeDLNA\reproductores.json`: reproductores vistos, 30 dias.
+  - registro: `«<cliente> abrió <carpeta> (<devueltos> de <total>)»` una vez por carpeta (primera pagina), y `«<cliente> reproduce <titulo> (<alto>p <codec>)»`, una linea por archivo y reproductor, agrupando los pedidos de 60 s.
+
+los ids de objeto, el puerto 8210, el UUID y las miniaturas no cambian.
+
+## 8. pendiente
 
 - pendiente solo de verificacion: probar en TV fisica el puerto 8210, la duracion en tarjetas y la pantalla de reanudar.
+- pendiente de la ampliacion 1.1.0: ventana nueva (consume la API interna de actividad) y lado Player (§A y §C).
 
-## 8. validacion cruzada
+## 9. validacion cruzada
 
 - servidor: `dotnet test .\VibeDLNA.Tests\VibeDLNA.Tests.csproj -c Release`.
 - player: `.\gradlew.bat --no-daemon testDebugUnitTest lintDebug assembleDebug` (requiere Android SDK; si el equipo no lo tiene, valida GitHub Actions).
