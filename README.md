@@ -17,14 +17,43 @@ Reproductor DLNA para Android TV con la interfaz compacta de VibeM3U.
 
 ## Controles
 
-- Flechas y `OK`: recorrer carpetas y abrir videos.
-- `Menú` o `Configuración`: abrir las opciones.
-- En el reproductor, izquierda/derecha: retroceder o adelantar y mostrar la
-  barra de progreso.
-- Pausa/reanudación: mostrar la barra de progreso.
-- `Atrás` en el reproductor: ocultar primero la interfaz y, al pulsarlo otra
-  vez, cerrar el video.
-- `Atrás` en la biblioteca: subir una carpeta o confirmar la salida.
+Servidores:
+
+- Flechas y `OK`: elegir un servidor. Si el guardado es el único en línea,
+  el Player entra directo a su biblioteca.
+- `Atrás`: volver a la biblioteca si ya hay un servidor; si no, salir.
+
+Biblioteca:
+
+- Izquierda/derecha y arriba/abajo: recorrer la columna de carpetas y la
+  grilla de videos.
+- `OK` en una carpeta: mostrar sus videos; si tiene subcarpetas, la columna
+  pasa a mostrarlas y aparece `‹` para subir un nivel.
+- `OK` en un video: si tiene avance guardado, abre Detalle (reanudar o desde
+  el inicio); si no, reproduce desde el inicio.
+- `Atrás`: subir un nivel de carpetas o confirmar la salida en la raíz.
+
+Detalle:
+
+- `OK` en «Reanudar» o «Desde el inicio»; «Volver a la carpeta» regresa.
+
+Reproductor:
+
+- Izquierda/derecha: retroceder o adelantar 10 s (más rápido al mantener).
+- `OK`: pausar o reanudar.
+- Arriba (`▲`): elegir audio y subtítulos. Izquierda/derecha cambian de
+  grupo, arriba/abajo de pista, `OK` elige y `Atrás` cierra.
+- `Atrás`: ocultar primero la interfaz y, al pulsarlo otra vez, cerrar el video.
+
+Opciones (`Menú` o `Configuración`, en cualquier pantalla):
+
+- Pestañas Biblioteca, Reproducción, Servidores y Acerca de; izquierda/derecha
+  entre pestañas, `OK` cambia el valor de una fila o ejecuta su acción.
+- Biblioteca: orden de las carpetas, ocultar archivos que la TV no puede abrir,
+  y borrar las miniaturas guardadas.
+- Reproducción: cuánto se recuerda dónde quedaste (1 hora, 1 día o siempre).
+- Servidores: abrir en el último servidor o elegir cada vez; cambiar de servidor.
+- Acerca de: versión y búsqueda de actualización.
 
 ## Actualizaciones
 

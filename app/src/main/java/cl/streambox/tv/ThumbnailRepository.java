@@ -64,7 +64,6 @@ final class ThumbnailRepository {
     private static final String ARTWORK_VARIANT = "server-artwork-";
     private static final int CONNECT_TIMEOUT_MS = 8_000;
     private static final int READ_TIMEOUT_MS = 15_000;
-    private static final String USER_AGENT = "VibeDLNA Player/0.3.12";
     /* 320x180 JPEG artwork is ~15 KB, so the disk cache stays near 30 MB. */
     static final int MAX_DISK_FILES = 2_000;
     private static final int PRUNE_EVERY_SAVES = 32;
@@ -87,6 +86,7 @@ final class ThumbnailRepository {
                 }
             };
 
+    private final String userAgent;
     private volatile boolean destroyed;
     private volatile boolean paused;
     private int cacheEpoch;
@@ -98,7 +98,26 @@ final class ThumbnailRepository {
         this.mainHandler = mainHandler;
         cacheDirectory = appContext.getDir("video_thumbnails", Context.MODE_PRIVATE);
         legacyCacheDirectory = new File(appContext.getCacheDir(), "video_thumbnails");
+        userAgent = ClientIdentity.forDevice(appContext);
         ensureDirectory(cacheDirectory);
+    }
+
+    /** Cantidad de imágenes y bytes de la caché recibida, para la pantalla Opciones. */
+    long[] cacheStats() {
+        long count = 0L;
+        long bytes = 0L;
+        synchronized (diskLock) {
+            for (File directory : new File[]{cacheDirectory, legacyCacheDirectory}) {
+                File[] files = directory.listFiles();
+                if (files == null) continue;
+                for (File file : files) {
+                    if (!file.isFile()) continue;
+                    count++;
+                    bytes += file.length();
+                }
+            }
+        }
+        return new long[]{count, bytes};
     }
 
     /**
@@ -312,7 +331,7 @@ final class ThumbnailRepository {
             connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
             connection.setReadTimeout(READ_TIMEOUT_MS);
             connection.setInstanceFollowRedirects(false);
-            connection.setRequestProperty("User-Agent", USER_AGENT);
+            connection.setRequestProperty("User-Agent", userAgent);
             connection.setRequestProperty("transferMode.dlna.org", "Interactive");
             connection.connect();
             if (connection.getResponseCode() < 200 || connection.getResponseCode() >= 300) {

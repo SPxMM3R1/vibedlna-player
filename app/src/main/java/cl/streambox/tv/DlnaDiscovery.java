@@ -9,19 +9,26 @@ import android.os.IBinder;
 import android.os.Looper;
 
 import org.jupnp.android.AndroidUpnpService;
-import org.jupnp.android.AndroidUpnpServiceImpl;
 import org.jupnp.controlpoint.ActionCallback;
 import org.jupnp.model.message.header.UDADeviceTypeHeader;
 import org.jupnp.model.meta.Device;
 import org.jupnp.model.meta.LocalDevice;
 import org.jupnp.model.meta.RemoteDevice;
+import org.jupnp.model.meta.RemoteDeviceIdentity;
 import org.jupnp.model.meta.Service;
 import org.jupnp.model.types.UDADeviceType;
 import org.jupnp.model.types.UDAServiceId;
+import org.jupnp.model.types.UDN;
+import org.jupnp.binding.xml.UDA10DeviceDescriptorBinderImpl;
 import org.jupnp.registry.DefaultRegistryListener;
 import org.jupnp.registry.Registry;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -29,6 +36,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 final class DlnaDiscovery implements AutoCloseable {
     private static final long SEARCH_INTERVAL_MS = 5L * 60L * 1_000L;
@@ -132,7 +141,7 @@ final class DlnaDiscovery implements AutoCloseable {
 
     DlnaDiscovery(Context context) {
         this.context = context.getApplicationContext();
-        Intent intent = new Intent(this.context, AndroidUpnpServiceImpl.class);
+        Intent intent = new Intent(this.context, VibeUpnpService.class);
         bound = this.context.bindService(
                 intent,
                 serviceConnection,
@@ -205,10 +214,61 @@ final class DlnaDiscovery implements AutoCloseable {
         if (friendlyName == null || friendlyName.isBlank()) {
             friendlyName = device.getDisplayString();
         }
+        String manufacturer = device.getDetails() == null
+                || device.getDetails().getManufacturerDetails() == null
+                ? ""
+                : device.getDetails().getManufacturerDetails().getManufacturer();
+        String modelName = device.getDetails() == null
+                || device.getDetails().getModelDetails() == null
+                ? ""
+                : device.getDetails().getModelDetails().getModelName();
         synchronized (monitor) {
             if (closed) return;
-            servers.put(udn, new DlnaServer(udn, friendlyName, service));
+            servers.put(udn, new DlnaServer(udn, friendlyName, service, manufacturer, modelName));
             monitor.notifyAll();
+        }
+    }
+
+    /**
+     * Solo compilaciones de depuración (la pantalla no lo llama en release): lee
+     * el description.xml de una URL y registra el dispositivo con jUPnP. Sirve
+     * para el emulador, que no recibe SSDP desde la red.
+     */
+    void registerDebugServer(String descriptionUrl) throws Exception {
+        AndroidUpnpService service = awaitService(System.currentTimeMillis() + 10_000L);
+        if (service == null) {
+            throw new IOException("El servicio UPnP no está disponible.");
+        }
+        URL url = new URL(descriptionUrl);
+        String xml = readText(url);
+        Matcher matcher = Pattern.compile("<UDN>\\s*(uuid:[^<\\s]+)\\s*</UDN>").matcher(xml);
+        if (!matcher.find()) {
+            throw new IOException("La descripción no trae UDN.");
+        }
+        RemoteDeviceIdentity identity = new RemoteDeviceIdentity(
+                UDN.valueOf(matcher.group(1)),
+                1800,
+                url,
+                null,
+                null
+        );
+        RemoteDevice undescribed = new RemoteDevice(identity);
+        RemoteDevice device = new UDA10DeviceDescriptorBinderImpl().describe(undescribed, xml);
+        service.getRegistry().addDevice(device);
+    }
+
+    private static String readText(URL url) throws IOException {
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        connection.setConnectTimeout(8_000);
+        connection.setReadTimeout(8_000);
+        try (InputStream input = connection.getInputStream()) {
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            byte[] buffer = new byte[4096];
+            int read;
+            while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
+            return new String(output.toByteArray(), StandardCharsets.UTF_8);
+        } finally {
+            connection.disconnect();
         }
     }
 

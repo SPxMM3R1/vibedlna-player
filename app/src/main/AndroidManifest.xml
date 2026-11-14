@@ -35,7 +35,7 @@
         </provider>
 
         <service
-            android:name="org.jupnp.android.AndroidUpnpServiceImpl"
+            android:name=".VibeUpnpService"
             android:exported="false" />
 
         <activity

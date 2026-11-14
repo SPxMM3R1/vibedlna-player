@@ -12,6 +12,7 @@ final class VideoItem {
     private final Uri artworkUri;
     private final String mimeType;
     private final long durationMs;
+    private final MediaInfo media;
 
     private VideoItem(
             String serverUdn,
@@ -22,7 +23,8 @@ final class VideoItem {
             Uri uri,
             Uri artworkUri,
             String mimeType,
-            long durationMs
+            long durationMs,
+            MediaInfo media
     ) {
         this.serverUdn = serverUdn;
         this.id = id;
@@ -33,10 +35,12 @@ final class VideoItem {
         this.artworkUri = artworkUri;
         this.mimeType = mimeType;
         this.durationMs = durationMs;
+        this.media = media == null ? MediaInfo.NONE : media;
     }
 
     static VideoItem container(String serverUdn, String id, String parentId, String name) {
-        return new VideoItem(serverUdn, id, parentId, name, true, null, null, null, 0);
+        return new VideoItem(serverUdn, id, parentId, name, true, null, null, null, 0,
+                MediaInfo.NONE);
     }
 
     static VideoItem video(
@@ -47,7 +51,8 @@ final class VideoItem {
             Uri uri,
             Uri artworkUri,
             String mimeType,
-            long durationMs
+            long durationMs,
+            MediaInfo media
     ) {
         return new VideoItem(
                 serverUdn,
@@ -58,7 +63,8 @@ final class VideoItem {
                 uri,
                 artworkUri,
                 mimeType,
-                durationMs
+                durationMs,
+                media
         );
     }
 
@@ -96,6 +102,11 @@ final class VideoItem {
 
     long getDurationMs() {
         return durationMs;
+    }
+
+    /** Datos técnicos anunciados; {@link MediaInfo#NONE} si no llegaron. */
+    MediaInfo getMedia() {
+        return media;
     }
 
     long getLastModified() {

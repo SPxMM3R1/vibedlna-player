@@ -3,17 +3,19 @@ package cl.streambox.tv;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.res.Configuration;
+import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
-import android.widget.SeekBar;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.window.OnBackInvokedDispatcher;
 
@@ -25,45 +27,84 @@ import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
-import androidx.media3.common.VideoSize;
+import androidx.media3.common.TrackSelectionOverride;
+import androidx.media3.common.Tracks;
 import androidx.media3.common.util.UnstableApi;
+import androidx.media3.datasource.DefaultDataSource;
+import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.ui.PlayerView;
 
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+/**
+ * Reproductor (diseño v1, pantalla 4): OSD con ruta, título, barra cian, «siguiente en
+ * la carpeta» y línea técnica real; ▲ abre audio y subtítulos con las pistas de Media3.
+ */
+@OptIn(markerClass = UnstableApi.class)
 public final class PlayerActivity extends Activity {
     static final String EXTRA_URI = "video_uri";
     static final String EXTRA_TITLE = "video_title";
     static final String EXTRA_DURATION = "video_duration";
     static final String EXTRA_RESUME_KEY = "video_resume_key";
+    /** Posición de inicio elegida en Detalle; -1 = usar el avance guardado. */
+    static final String EXTRA_START_MS = "video_start_ms";
+    static final String EXTRA_RETENTION_MS = "video_retention_ms";
+    static final String EXTRA_SERVER = "video_server";
+    static final String EXTRA_FOLDER = "video_folder";
+    static final String EXTRA_HOST = "video_host";
+    static final String EXTRA_NEXT_TITLE = "video_next_title";
+    static final String EXTRA_NEXT_DURATION = "video_next_duration";
+
     private static final long OVERLAY_TIMEOUT_MS = 4_500L;
     private static final long SEEK_STEP_MS = 10_000L;
     private static final long SEEK_FAST_STEP_MS = 30_000L;
     private static final long RESUME_SAVE_INTERVAL_MS = 10_000L;
-    private static final int PROGRESS_MAX = 1_000;
+    private static final int KNOB_TRAVEL_DP = 520;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService resumeExecutor = Executors.newSingleThreadExecutor();
+
     private PlayerView playerView;
-    private View overlay;
-    private View clockPanel;
-    private TextView clock;
-    private TextView endingTime;
+    private View osd;
+    private TextView eyebrow;
     private TextView title;
-    private TextView diagnostics;
-    private TextView seekTime;
-    private SeekBar seekBar;
+    private View barTrack;
+    private View barFill;
+    private View knob;
+    private TextView time;
+    private TextView next;
+    private TextView help;
+    private TextView clock;
+    private TextView date;
+    private TextView tech;
+    private TextView from;
+    private LinearLayout trackPanel;
+    private LinearLayout trackColumns;
+
     private ExoPlayer player;
     private PlaybackResumeStore resumeStore;
     private String resumeKey;
     private long declaredDurationMs;
-    private boolean seekControlsRequested;
+    private long startMs = -1L;
+    private String server = "";
+    private String folder = "";
+    private String host = "";
+    private String nextTitle = "";
+    private long nextDurationMs;
     private long lastBackActionMs = -1_000L;
+
+    private boolean trackPanelOpen;
+    private int trackGroup;
+    private final int[] trackIndex = new int[2];
+    private final List<List<TrackChoice>> choices = new ArrayList<>();
 
     private final Runnable saveResumePoint = new Runnable() {
         @Override
@@ -77,18 +118,15 @@ public final class PlayerActivity extends Activity {
         @Override
         public void run() {
             updatePlaybackUi();
-            if (overlay.getVisibility() == View.VISIBLE) {
-                mainHandler.postDelayed(this, 250L);
+            if (osd.getVisibility() == View.VISIBLE) {
+                mainHandler.postDelayed(this, 500L);
             }
         }
     };
 
     private final Runnable hideOverlay = () -> {
-        overlay.setVisibility(View.GONE);
-        seekBar.setVisibility(View.GONE);
-        seekTime.setVisibility(View.GONE);
-        seekControlsRequested = false;
-        clockPanel.setVisibility(View.GONE);
+        if (trackPanelOpen) return;
+        osd.setVisibility(View.GONE);
         mainHandler.removeCallbacks(updateProgress);
     };
 
@@ -97,14 +135,21 @@ public final class PlayerActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_player);
         playerView = findViewById(R.id.player_view);
-        overlay = findViewById(R.id.player_overlay);
-        clockPanel = findViewById(R.id.player_clock_panel);
-        clock = findViewById(R.id.player_clock);
-        endingTime = findViewById(R.id.player_ending_time);
+        osd = findViewById(R.id.player_osd);
+        eyebrow = findViewById(R.id.player_eyebrow);
         title = findViewById(R.id.player_title);
-        diagnostics = findViewById(R.id.player_diagnostics);
-        seekTime = findViewById(R.id.player_seek_time);
-        seekBar = findViewById(R.id.player_seek_bar);
+        barTrack = findViewById(R.id.player_bar_track);
+        barFill = findViewById(R.id.player_bar_fill);
+        knob = findViewById(R.id.player_knob);
+        time = findViewById(R.id.player_time);
+        next = findViewById(R.id.player_next);
+        help = findViewById(R.id.player_help);
+        clock = findViewById(R.id.player_clock);
+        date = findViewById(R.id.player_date);
+        tech = findViewById(R.id.player_tech);
+        from = findViewById(R.id.player_from);
+        trackPanel = findViewById(R.id.player_tracks);
+        trackColumns = findViewById(R.id.player_track_columns);
         registerBackCallback();
         enterImmersiveMode();
 
@@ -112,88 +157,140 @@ public final class PlayerActivity extends Activity {
         String titleValue = getIntent().getStringExtra(EXTRA_TITLE);
         declaredDurationMs = getIntent().getLongExtra(EXTRA_DURATION, 0L);
         resumeKey = getIntent().getStringExtra(EXTRA_RESUME_KEY);
-        resumeStore = new PlaybackResumeStore(this);
+        startMs = getIntent().getLongExtra(EXTRA_START_MS, -1L);
+        long retention = getIntent().getLongExtra(EXTRA_RETENTION_MS, PlaybackResumeStore.RETENTION_MS);
+        server = textExtra(EXTRA_SERVER);
+        folder = textExtra(EXTRA_FOLDER);
+        host = textExtra(EXTRA_HOST);
+        nextTitle = textExtra(EXTRA_NEXT_TITLE);
+        nextDurationMs = getIntent().getLongExtra(EXTRA_NEXT_DURATION, 0L);
+        resumeStore = new PlaybackResumeStore(this, retention);
         if (uriValue == null || uriValue.isBlank()) {
             finish();
             return;
         }
         title.setText(titleValue == null || titleValue.isBlank() ? "Video" : titleValue);
+        eyebrow.setText(DlnaMediaFormat.join(java.util.Arrays.asList(server, folder), " · ")
+                .toUpperCase(Locale.ROOT));
+        from.setText("desde " + DlnaMediaFormat.join(java.util.Arrays.asList(server, host), " · "));
+        next.setText(nextTitle.isEmpty() ? "—"
+                : nextTitle + " · " + DlnaMediaFormat.duration(nextDurationMs));
+        help.setText("◀ ▶ 10 s · ▲ audio y subtítulos · OK pausa");
         createPlayer(Uri.parse(uriValue));
-        showOverlay(false, false);
+        showOverlay(false);
+    }
+
+    private String textExtra(String name) {
+        String value = getIntent().getStringExtra(name);
+        return value == null ? "" : value;
     }
 
     private void createPlayer(Uri uri) {
-        player = new ExoPlayer.Builder(this).build();
+        DefaultHttpDataSource.Factory httpFactory = new DefaultHttpDataSource.Factory()
+                .setUserAgent(ClientIdentity.forDevice(this));
+        DefaultMediaSourceFactory sourceFactory = new DefaultMediaSourceFactory(
+                new DefaultDataSource.Factory(this, httpFactory)
+        );
+        player = new ExoPlayer.Builder(this).setMediaSourceFactory(sourceFactory).build();
         player.setAudioAttributes(AudioAttributes.DEFAULT, true);
         player.setHandleAudioBecomingNoisy(true);
         playerView.setPlayer(player);
         player.addListener(new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int playbackState) {
-                updateDiagnostics();
                 if (playbackState == Player.STATE_READY) updatePlaybackUi();
                 if (playbackState == Player.STATE_ENDED) savePlaybackPosition();
             }
 
             @Override
-            public void onVideoSizeChanged(VideoSize videoSize) {
-                updateDiagnostics();
+            public void onIsPlayingChanged(boolean isPlaying) {
+                updatePlaybackUi();
+            }
+
+            @Override
+            public void onTracksChanged(Tracks tracks) {
+                if (trackPanelOpen) rebuildTracks();
+                updateTechLine();
+            }
+
+            @Override
+            public void onVideoSizeChanged(androidx.media3.common.VideoSize videoSize) {
+                updateTechLine();
             }
 
             @Override
             public void onPlayerError(PlaybackException error) {
-                diagnostics.setText(error.getErrorCodeName());
-                showOverlay(true, false);
+                eyebrow.setText(error.getErrorCodeName());
+                showOverlay(true);
             }
         });
         player.setMediaItem(MediaItem.fromUri(uri));
-        PlaybackResumeStore.ResumePoint saved = resumeStore == null || resumeKey == null
-                ? null
-                : resumeStore.get(resumeKey, System.currentTimeMillis());
-        if (saved != null) {
-            long resumePosition = saved.positionMs;
-            if (declaredDurationMs <= 0L && saved.durationMs > 0L) {
-                declaredDurationMs = saved.durationMs;
-            }
-            player.seekTo(resumePosition);
+        long resumePosition = 0L;
+        if (startMs >= 0L) {
+            resumePosition = startMs;
         } else {
-            player.seekTo(0L);
+            PlaybackResumeStore.ResumePoint saved = resumeKey == null
+                    ? null
+                    : resumeStore.get(resumeKey, System.currentTimeMillis());
+            if (saved != null) {
+                resumePosition = saved.positionMs;
+                if (declaredDurationMs <= 0L && saved.durationMs > 0L) {
+                    declaredDurationMs = saved.durationMs;
+                }
+            }
         }
+        player.seekTo(resumePosition);
         player.prepare();
         player.play();
         mainHandler.removeCallbacks(saveResumePoint);
         mainHandler.postDelayed(saveResumePoint, RESUME_SAVE_INTERVAL_MS);
     }
 
-    @OptIn(markerClass = UnstableApi.class)
-    private void updateDiagnostics() {
+    private void updateTechLine() {
         if (player == null) return;
         Format video = player.getVideoFormat();
         Format audio = player.getAudioFormat();
-        String resolution = video != null && video.width > 0 && video.height > 0
-                ? video.width + " \u00d7 " + video.height
-                : "Resoluci\u00f3n pendiente";
+        List<String> parts = new ArrayList<>();
+        if (video != null && video.width > 0 && video.height > 0) {
+            parts.add(video.width + " × " + video.height);
+        }
         String videoCodec = PlaybackUiFormatter.friendlyCodec(
                 video == null ? null : video.sampleMimeType,
                 video == null ? null : video.codecs
         );
-        String audioCodec = PlaybackUiFormatter.friendlyCodec(
-                audio == null ? null : audio.sampleMimeType,
-                audio == null ? null : audio.codecs
-        );
-        diagnostics.setText(resolution + "\n" + videoCodec + " \u00b7 " + audioCodec);
+        if (!"—".equals(videoCodec)) parts.add(videoCodec);
+        if (audio != null) {
+            String audioCodec = PlaybackUiFormatter.friendlyCodec(audio.sampleMimeType, audio.codecs);
+            String channels = channelsLabel(audio.channelCount);
+            String audioText = ("—".equals(audioCodec) ? "" : audioCodec)
+                    + (channels.isEmpty() ? "" : " " + channels);
+            if (!audioText.trim().isEmpty()) parts.add(audioText.trim());
+        }
+        tech.setText(DlnaMediaFormat.join(parts, " · "));
     }
 
-    private void showOverlay(boolean keepVisible, boolean showSeekControls) {
-        seekControlsRequested = showSeekControls;
-        overlay.setVisibility(View.VISIBLE);
-        clockPanel.setVisibility(View.VISIBLE);
-        seekBar.setVisibility(showSeekControls ? View.VISIBLE : View.GONE);
-        seekTime.setVisibility(showSeekControls ? View.VISIBLE : View.GONE);
+    /** 1.0, 2.0, 5.1 o 7.1 según los canales de Media3. */
+    static String channelsLabel(int channels) {
+        switch (channels) {
+            case 1:
+                return "1.0";
+            case 2:
+                return "2.0";
+            case 6:
+                return "5.1";
+            case 8:
+                return "7.1";
+            default:
+                return channels > 0 ? channels + " ch" : "";
+        }
+    }
+
+    private void showOverlay(boolean keepVisible) {
+        osd.setVisibility(View.VISIBLE);
         mainHandler.removeCallbacks(hideOverlay);
         mainHandler.removeCallbacks(updateProgress);
         updateProgress.run();
-        if (!keepVisible) mainHandler.postDelayed(hideOverlay, OVERLAY_TIMEOUT_MS);
+        if (!keepVisible && !trackPanelOpen) mainHandler.postDelayed(hideOverlay, OVERLAY_TIMEOUT_MS);
     }
 
     private long playbackDuration() {
@@ -203,38 +300,31 @@ public final class PlayerActivity extends Activity {
     }
 
     private void updatePlaybackUi() {
-        clock.setText(new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date()));
-        if (player == null) {
-            endingTime.setVisibility(View.GONE);
-            seekTime.setVisibility(View.GONE);
-            return;
-        }
+        clock.setText(new SimpleDateFormat("HH:mm", new Locale("es")).format(new Date()));
+        date.setText(new SimpleDateFormat("EEEE d 'de' MMMM", new Locale("es")).format(new Date())
+                .toUpperCase(Locale.ROOT));
+        if (player == null) return;
         long duration = playbackDuration();
         long position = Math.max(0L, player.getCurrentPosition());
+        boolean playing = player.isPlaying();
         if (duration <= 0L || duration == C.TIME_UNSET) {
-            endingTime.setVisibility(View.GONE);
-            seekBar.setVisibility(View.GONE);
-            seekTime.setVisibility(View.GONE);
+            time.setText(DlnaMediaFormat.duration(position) + (playing ? "" : " · en pausa"));
             return;
         }
-        seekBar.setProgress(PlaybackMath.progress(position, duration, PROGRESS_MAX));
-        seekTime.setText(PlaybackUiFormatter.positionAndDuration(position, duration));
-        if (seekControlsRequested && overlay.getVisibility() == View.VISIBLE) {
-            seekBar.setVisibility(View.VISIBLE);
-            seekTime.setVisibility(View.VISIBLE);
-        }
-        endingTime.setText(PlaybackUiFormatter.endingAt(
-                System.currentTimeMillis(),
-                position,
-                duration,
-                Locale.getDefault()
-        ));
-        endingTime.setVisibility(
-                overlay.getVisibility() == View.VISIBLE ? View.VISIBLE : View.GONE
-        );
-        clockPanel.setVisibility(
-                overlay.getVisibility() == View.VISIBLE ? View.VISIBLE : View.GONE
-        );
+        int fraction = PlaybackMath.progress(position, duration, 1000);
+        int barWidth = dpWidth(barTrack);
+        barFill.getLayoutParams().width = barWidth * fraction / 1000;
+        barFill.requestLayout();
+        knob.setTranslationX(barWidth * fraction / 1000f - knob.getWidth() / 2f);
+        time.setText(DlnaMediaFormat.duration(position) + " / " + DlnaMediaFormat.duration(duration)
+                + " · quedan " + DlnaMediaFormat.remaining(duration - position)
+                + (playing ? "" : " · en pausa"));
+        updateTechLine();
+    }
+
+    private int dpWidth(View view) {
+        int width = view.getWidth();
+        return width > 0 ? width : TvUi.dp(this, KNOB_TRAVEL_DP);
     }
 
     private void seekBy(long deltaMs) {
@@ -245,14 +335,161 @@ public final class PlayerActivity extends Activity {
                 playbackDuration()
         );
         player.seekTo(target);
-        showOverlay(false, true);
+        showOverlay(false);
     }
+
+    // ---------------------------------------------------------------- audio y subtítulos
+
+    private void openTracks() {
+        if (player == null) return;
+        trackPanelOpen = true;
+        trackPanel.setVisibility(View.VISIBLE);
+        osd.setVisibility(View.VISIBLE);
+        mainHandler.removeCallbacks(hideOverlay);
+        rebuildTracks();
+    }
+
+    private void closeTracks() {
+        trackPanelOpen = false;
+        trackPanel.setVisibility(View.GONE);
+        showOverlay(false);
+    }
+
+    private void rebuildTracks() {
+        choices.clear();
+        List<TrackChoice> audio = new ArrayList<>();
+        List<TrackChoice> subs = new ArrayList<>();
+        subs.add(TrackChoice.off(!player.getCurrentTracks().isTypeSelected(C.TRACK_TYPE_TEXT)));
+        for (Tracks.Group group : player.getCurrentTracks().getGroups()) {
+            int type = group.getType();
+            if (type != C.TRACK_TYPE_AUDIO && type != C.TRACK_TYPE_TEXT) continue;
+            for (int i = 0; i < group.getMediaTrackGroup().length; i++) {
+                if (!group.isTrackSupported(i)) continue;
+                Format format = group.getTrackFormat(i);
+                TrackChoice choice = TrackChoice.track(group, i, format, group.isTrackSelected(i));
+                if (type == C.TRACK_TYPE_AUDIO) audio.add(choice);
+                else subs.add(choice);
+            }
+        }
+        choices.add(audio);
+        choices.add(subs);
+        trackColumns.removeAllViews();
+        trackColumns.addView(column("AUDIO", audio, 0));
+        trackColumns.addView(column("SUBTÍTULOS", subs, 1));
+        trackIndex[0] = Math.min(trackIndex[0], Math.max(0, audio.size() - 1));
+        trackIndex[1] = Math.min(trackIndex[1], Math.max(0, subs.size() - 1));
+        renderFocus();
+    }
+
+    private LinearLayout column(String label, List<TrackChoice> items, int group) {
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                TvUi.dp(this, 360),
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        params.rightMargin = TvUi.dp(this, 60);
+        column.setLayoutParams(params);
+        TextView head = TvUi.text(this, label, 11f, TvUi.INK_3, false);
+        head.setLetterSpacing(0.2f);
+        head.setTag("head" + group);
+        column.addView(head);
+        for (int i = 0; i < items.size(); i++) {
+            TrackChoice choice = items.get(i);
+            TextView row = TvUi.text(this, choice.label, 15f, TvUi.INK_2, false);
+            row.setTag(group + ":" + i);
+            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+            );
+            rowParams.topMargin = TvUi.dp(this, 10);
+            row.setLayoutParams(rowParams);
+            if (choice.selected) row.setText("●  " + choice.label);
+            column.addView(row);
+        }
+        return column;
+    }
+
+    /** Resalta la fila con foco de cada columna: blanco en negrita y línea. */
+    private void renderFocus() {
+        for (int g = 0; g < 2; g++) {
+            LinearLayout column = (LinearLayout) trackColumns.getChildAt(g);
+            if (column == null) continue;
+            for (int i = 1; i < column.getChildCount(); i++) {
+                TextView row = (TextView) column.getChildAt(i);
+                boolean focused = g == trackGroup && (i - 1) == trackIndex[g];
+                row.setTextColor(focused ? TvUi.WHITE : TvUi.INK_2);
+                row.setTypeface(null, focused ? Typeface.BOLD : Typeface.NORMAL);
+                row.setPaintFlags(focused ? row.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG
+                        : row.getPaintFlags() & ~android.graphics.Paint.UNDERLINE_TEXT_FLAG);
+            }
+        }
+    }
+
+    private void moveTrack(int dx, int dy) {
+        if (dx != 0) {
+            trackGroup = dx > 0 ? 1 : 0;
+        }
+        if (dy != 0) {
+            List<TrackChoice> list = choices.get(trackGroup);
+            trackIndex[trackGroup] = Math.max(0, Math.min(list.size() - 1, trackIndex[trackGroup] + dy));
+        }
+        renderFocus();
+    }
+
+    private void chooseTrack() {
+        List<TrackChoice> list = choices.get(trackGroup);
+        if (list.isEmpty()) return;
+        TrackChoice choice = list.get(trackIndex[trackGroup]);
+        androidx.media3.common.TrackSelectionParameters.Builder builder =
+                player.getTrackSelectionParameters().buildUpon();
+        if (choice.off) {
+            builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                    .clearOverridesOfType(C.TRACK_TYPE_TEXT);
+        } else if (choice.group.getType() == C.TRACK_TYPE_AUDIO) {
+            builder.setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                    .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                    .setOverrideForType(new TrackSelectionOverride(
+                            choice.group.getMediaTrackGroup(), choice.index));
+        } else {
+            builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                    .setOverrideForType(new TrackSelectionOverride(
+                            choice.group.getMediaTrackGroup(), choice.index));
+        }
+        player.setTrackSelectionParameters(builder.build());
+        rebuildTracks();
+    }
+
+    // ---------------------------------------------------------------- teclas
 
     @Override
     @SuppressLint("GestureBackNavigation")
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             int keyCode = event.getKeyCode();
+            if (trackPanelOpen) {
+                if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                    moveTrack(-1, 0);
+                    return true;
+                }
+                if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                    moveTrack(1, 0);
+                    return true;
+                }
+                if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                    moveTrack(0, -1);
+                    return true;
+                }
+                if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                    moveTrack(0, 1);
+                    return true;
+                }
+                if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
+                    if (event.getRepeatCount() == 0) chooseTrack();
+                    return true;
+                }
+            }
             if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT
                     || keyCode == KeyEvent.KEYCODE_MEDIA_REWIND) {
                 long step = event.getRepeatCount() >= 5 ? SEEK_FAST_STEP_MS : SEEK_STEP_MS;
@@ -270,28 +507,41 @@ public final class PlayerActivity extends Activity {
                 handleBackAction();
                 return true;
             }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP && !trackPanelOpen) {
+                openTracks();
+                return true;
+            }
             if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER
-                    || keyCode == KeyEvent.KEYCODE_ENTER
-                    || keyCode == KeyEvent.KEYCODE_INFO) {
-                showOverlay(false, false);
+                    || keyCode == KeyEvent.KEYCODE_ENTER) {
+                if (player != null) {
+                    if (player.isPlaying()) player.pause();
+                    else player.play();
+                    savePlaybackPosition();
+                    // En pausa el OSD se queda para mostrar «en pausa».
+                    showOverlay(!player.isPlaying());
+                }
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_INFO) {
+                showOverlay(false);
                 return true;
             }
             if (keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE && player != null) {
                 player.pause();
                 savePlaybackPosition();
-                showOverlay(false, true);
+                showOverlay(true);
                 return true;
             }
             if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY && player != null) {
                 player.play();
-                showOverlay(false, true);
+                showOverlay(false);
                 return true;
             }
             if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE && player != null) {
                 if (player.isPlaying()) player.pause();
                 else player.play();
                 savePlaybackPosition();
-                showOverlay(false, true);
+                showOverlay(false);
                 return true;
             }
         }
@@ -307,11 +557,16 @@ public final class PlayerActivity extends Activity {
         }
     }
 
+    /** Atrás: cierra el panel; si no, oculta el OSD; y otra vez cierra el video. */
     private void handleBackAction() {
         long now = SystemClock.uptimeMillis();
         if (now - lastBackActionMs < 250L) return;
         lastBackActionMs = now;
-        if (overlay.getVisibility() == View.VISIBLE || clockPanel.getVisibility() == View.VISIBLE) {
+        if (trackPanelOpen) {
+            closeTracks();
+            return;
+        }
+        if (osd.getVisibility() == View.VISIBLE) {
             hideOverlay.run();
             return;
         }
@@ -399,5 +654,40 @@ public final class PlayerActivity extends Activity {
         releasePlayer();
         resumeExecutor.shutdown();
         super.onDestroy();
+    }
+
+    /** Una opción de audio o subtítulos; {@code off} es «Desactivados» en subtítulos. */
+    private static final class TrackChoice {
+        final String label;
+        final Tracks.Group group;
+        final int index;
+        final boolean selected;
+        final boolean off;
+
+        private TrackChoice(String label, Tracks.Group group, int index, boolean selected, boolean off) {
+            this.label = label;
+            this.group = group;
+            this.index = index;
+            this.selected = selected;
+            this.off = off;
+        }
+
+        static TrackChoice off(boolean selected) {
+            return new TrackChoice("Desactivados", null, -1, selected, true);
+        }
+
+        static TrackChoice track(Tracks.Group group, int index, Format format, boolean selected) {
+            String language = format.language == null || format.language.isEmpty()
+                    ? "Pista " + (index + 1)
+                    : format.language;
+            String codec = PlaybackUiFormatter.friendlyCodec(format.sampleMimeType, format.codecs);
+            String channels = group.getType() == C.TRACK_TYPE_AUDIO ? channelsLabel(format.channelCount) : "";
+            String text = DlnaMediaFormat.join(java.util.Arrays.asList(
+                    language,
+                    "—".equals(codec) ? "" : codec,
+                    channels
+            ), " · ");
+            return new TrackChoice(text, group, index, selected, false);
+        }
     }
 }

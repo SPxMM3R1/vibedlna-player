@@ -3,26 +3,37 @@ package cl.streambox.tv;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 /**
- * Small, private store for the temporary resume point of a video.
+ * Almacén privado del punto donde quedó cada video.
  *
- * <p>Entries are intentionally short lived. They are not a viewing history:
- * an entry is removed once it expires, reaches the end of the item, or is
- * cleared by the player.</p>
+ * <p>No es un historial: cada entrada vence según la retención elegida en
+ * Opciones (1 hora, 1 día o siempre), se borra al llegar al final del video y,
+ * en «siempre», se conservan como máximo {@link #MAX_ENTRIES} entradas (se
+ * borran las más antiguas).</p>
  */
 final class PlaybackResumeStore {
     static final long RETENTION_MS = 60L * 60L * 1_000L;
+    static final int MAX_ENTRIES = 200;
     private static final long MINIMUM_POSITION_MS = 5_000L;
     private static final long COMPLETION_TAIL_MS = 30_000L;
     private static final String PREFS = "temporary_playback_resume";
     private static final String PREFIX = "resume_";
 
     private final SharedPreferences preferences;
+    private final long retentionMs;
 
     PlaybackResumeStore(Context context) {
+        this(context, RETENTION_MS);
+    }
+
+    PlaybackResumeStore(Context context, long retentionMs) {
         preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        this.retentionMs = retentionMs;
         prune(System.currentTimeMillis());
     }
 
@@ -30,7 +41,7 @@ final class PlaybackResumeStore {
         String key = storageKey(stableKey);
         String value = preferences.getString(key, null);
         ResumePoint point = parse(value);
-        if (point == null || !isUsable(point, nowMs)) {
+        if (point == null || !isUsable(point, nowMs, retentionMs)) {
             if (value != null) preferences.edit().remove(key).apply();
             return null;
         }
@@ -44,13 +55,14 @@ final class PlaybackResumeStore {
         if (position < MINIMUM_POSITION_MS) {
             return;
         }
-        if (duration > 0L && position >= Math.max(0L, duration - COMPLETION_TAIL_MS)) {
+        if (duration > 0L && position >= Math.max(0L, duration - completionTail(duration))) {
             clear(stableKey);
             return;
         }
         preferences.edit()
                 .putString(storageKey(stableKey), position + "|" + duration + "|" + nowMs)
                 .apply();
+        enforceLimit();
     }
 
     void clear(String stableKey) {
@@ -64,20 +76,55 @@ final class PlaybackResumeStore {
             String key = entry.getKey();
             if (!key.startsWith(PREFIX)) continue;
             ResumePoint point = parse(entry.getValue() == null ? null : entry.getValue().toString());
-            if (point != null && isUsable(point, nowMs)) continue;
+            if (point != null && isUsable(point, nowMs, retentionMs)) continue;
             if (editor == null) editor = preferences.edit();
             editor.remove(key);
         }
         if (editor != null) editor.apply();
     }
 
+    /** Quita las entradas más antiguas cuando hay más de {@link #MAX_ENTRIES}. */
+    private void enforceLimit() {
+        List<Map.Entry<String, ?>> stored = new ArrayList<>();
+        for (Map.Entry<String, ?> entry : preferences.getAll().entrySet()) {
+            if (entry.getKey().startsWith(PREFIX)) stored.add(entry);
+        }
+        if (stored.size() <= MAX_ENTRIES) return;
+        Collections.sort(stored, (left, right) -> Long.compare(
+                savedAt(left.getValue()),
+                savedAt(right.getValue())
+        ));
+        SharedPreferences.Editor editor = preferences.edit();
+        for (int i = 0; i < stored.size() - MAX_ENTRIES; i++) {
+            editor.remove(stored.get(i).getKey());
+        }
+        editor.apply();
+    }
+
+    private static long savedAt(Object value) {
+        ResumePoint point = parse(value == null ? null : value.toString());
+        return point == null ? 0L : point.savedAtMs;
+    }
+
     static boolean isUsable(ResumePoint point, long nowMs) {
+        return isUsable(point, nowMs, RETENTION_MS);
+    }
+
+    static boolean isUsable(ResumePoint point, long nowMs, long retentionMs) {
         return point != null
                 && point.positionMs >= MINIMUM_POSITION_MS
                 && nowMs >= point.savedAtMs
-                && nowMs - point.savedAtMs < RETENTION_MS
+                && nowMs - point.savedAtMs < retentionMs
                 && (point.durationMs <= 0L
-                || point.positionMs < Math.max(0L, point.durationMs - COMPLETION_TAIL_MS));
+                || point.positionMs < Math.max(0L, point.durationMs - completionTail(point.durationMs)));
+    }
+
+    /**
+     * Cola final que cuenta como «visto del todo»: 30 s, o el 5 % de la duración si el
+     * video es más corto (un clip de 20 s no debe borrarse al pausarlo a los 11 s).
+     */
+    static long completionTail(long durationMs) {
+        return Math.min(COMPLETION_TAIL_MS, Math.max(0L, durationMs) / 20L);
     }
 
     private static ResumePoint parse(String value) {

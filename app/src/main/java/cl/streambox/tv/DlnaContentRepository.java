@@ -253,7 +253,8 @@ final class DlnaContentRepository {
                     resource.uri,
                     artworkUri(item, resource.uri),
                     resource.mimeType,
-                    resource.durationMs
+                    resource.durationMs,
+                    resource.media
             ));
         }
     }
@@ -308,6 +309,54 @@ final class DlnaContentRepository {
         }
     }
 
+    /**
+     * Datos técnicos de un recurso (contrato §7 A): resolución, tasa en bytes/s,
+     * canales y tamaño del atributo {@code res}, y {@code dc:description} y
+     * {@code dc:date} del item. Lo que falte queda vacío.
+     */
+    static MediaInfo readMedia(Res resource, DIDLObject item) {
+        String resolution = resource.getResolution();
+        Long bitrate = resource.getBitrate();
+        Long channels = resource.getNrAudioChannels();
+        Long size = resource.getSize();
+        String description = item.getFirstPropertyValue(
+                DIDLObject.Property.DC.DESCRIPTION.class
+        );
+        String date = item.getFirstPropertyValue(DIDLObject.Property.DC.DATE.class);
+        return new MediaInfo(
+                resolution == null ? "" : resolution.trim(),
+                bitrate == null ? 0L : bitrate,
+                channels == null ? 0L : channels,
+                size == null ? 0L : size,
+                date == null ? "" : date.trim(),
+                description == null ? "" : description.trim()
+        );
+    }
+
+    /**
+     * «N carpetas · M videos» de la raíz (contrato §7 B), leído de la
+     * dc:description de BrowseMetadata sobre el objeto 0. Vacío si no llega.
+     */
+    String rootSummary(DlnaServer server) {
+        try {
+            Page page = browsePage(
+                    server.getContentDirectoryService(),
+                    "0",
+                    BrowseFlag.METADATA,
+                    0L,
+                    1L
+            );
+            DIDLObject object = firstObject(page.content);
+            if (object == null) return "";
+            String description = object.getFirstPropertyValue(
+                    DIDLObject.Property.DC.DESCRIPTION.class
+            );
+            return description == null ? "" : description.trim();
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
     private static DIDLObject firstObject(DIDLContent content) {
         if (!content.getContainers().isEmpty()) return content.getContainers().get(0);
         if (!content.getItems().isEmpty()) return content.getItems().get(0);
@@ -340,7 +389,8 @@ final class DlnaContentRepository {
             best = new Resource(
                     uri,
                     mimeType,
-                    durationMillis(resource.getDuration())
+                    durationMillis(resource.getDuration()),
+                    readMedia(resource, item)
             );
             bestScore = score;
         }
@@ -407,11 +457,13 @@ final class DlnaContentRepository {
         final Uri uri;
         final String mimeType;
         final long durationMs;
+        final MediaInfo media;
 
-        Resource(Uri uri, String mimeType, long durationMs) {
+        Resource(Uri uri, String mimeType, long durationMs, MediaInfo media) {
             this.uri = uri;
             this.mimeType = mimeType;
             this.durationMs = durationMs;
+            this.media = media;
         }
     }
 }

@@ -4,29 +4,32 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.Dialog;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Rect;
+import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.text.SpannableString;
-import android.text.Spanned;
-import android.text.style.ForegroundColorSpan;
+import android.text.TextUtils;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
-import android.view.ViewParent;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.window.OnBackInvokedDispatcher;
 
@@ -34,466 +37,1243 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
+import java.util.Date;
 import java.util.List;
-import java.util.Map;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+/**
+ * Pantallas del Player 0.4.0 (diseño v1): Servidores, Biblioteca, Detalle y
+ * Opciones. Todo vive en esta actividad; el Player de video es {@link PlayerActivity}.
+ */
 public final class MainActivity extends Activity {
     private static final String TAG = "VibeDlnaMain";
+    private static final String EXTRA_DEBUG_SERVER_URL = "debug_server_url";
+    private static final String UP_ROW_ID = "__arriba__";
+    private static final long CLOCK_TICK_MS = 15_000L;
+
+    private enum Screen { SERVERS, LIBRARY, DETAIL, OPTIONS }
+
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService dlnaExecutor = Executors.newFixedThreadPool(2);
     private final ExecutorService updateExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService thumbnailCacheExecutor = Executors.newSingleThreadExecutor();
-    private final List<VideoItem> entries = new ArrayList<>();
-    private final List<DlnaServer> availableServers = new ArrayList<>();
-    private final Map<String, String> containerNames = new HashMap<>();
 
-    private RecyclerView videoGrid;
-    private View emptyState;
-    private TextView emptyTitle;
-    private TextView emptyDescription;
-    private ProgressBar libraryProgress;
-    private Button searchButton;
-    private Button optionsButton;
-    private View optionsScrim;
-    private View optionsPanel;
-    private Button serverOption;
-    private Button discoverOption;
-    private TextView serverValue;
-    private TextView folderValue;
-    private Button clearThumbnailsOption;
+    private final BrowseStack levels = new BrowseStack();
+    private final List<List<VideoItem>> folderListStack = new ArrayList<>();
+    private final List<DlnaServer> online = new ArrayList<>();
+    private List<VideoItem> folders = new ArrayList<>();
+    private List<VideoItem> videos = new ArrayList<>();
 
-    private LibraryPreferences preferences;
+    private LibraryPreferences library;
+    private PlayerSettings settings;
     private DlnaDiscovery discovery;
     private DlnaContentRepository contentRepository;
     private ThumbnailRepository thumbnailRepository;
+    private PlaybackResumeStore resumeStore;
     private VideoAdapter adapter;
     private AppUpdater appUpdater;
+    private OptionsScreen optionsScreen;
+    private boolean supportedMimesLoaded;
+    private java.util.Set<String> supportedMimes;
+
     private DlnaServer currentServer;
-    private String currentContainerId = "0";
-    private String currentContainerName = "Inicio";
-    private String currentParentId;
-    private Dialog serverDialog;
-    private Dialog exitDialog;
+    private VideoItem selectedFolder;
+    private VideoItem detailEntry;
+    private PlaybackResumeStore.ResumePoint detailPoint;
+    private Screen screen = Screen.SERVERS;
+    private Screen returnScreen = Screen.LIBRARY;
+    private String pendingDebugUrl;
     private int discoveryGeneration;
     private int browseGeneration;
+    private int backdropFlip;
+    private String backdropToken = "";
+    private String debugUrlUsed;
+
+    private FrameLayout root;
+    private ImageView backdropA;
+    private ImageView backdropB;
+    private View focusLine;
+    private View focusRing;
+    private FrameLayout screenServers;
+    private FrameLayout screenLibrary;
+    private FrameLayout screenDetail;
+    private FrameLayout screenOptions;
+    private final List<TextView> clocks = new ArrayList<>();
+    private LinearLayout serversList;
+    private LinearLayout serversSpinner;
+    private View[] spinnerDots;
+    private TextView serversHint;
+    private TextView libraryCrumbs;
+    private LinearLayout folderList;
+    private TextView heroEyebrow;
+    private TextView heroTitle;
+    private TextView heroMeta;
+    private TextView gridLabel;
+    private TextView gridMessage;
+    private RecyclerView grid;
+    private TextView detailCrumbs;
+    private TextView detailEyebrow;
+    private TextView detailTitle;
+    private LinearLayout detailFacts;
+    private View detailBar;
+    private View detailBarTrack;
+    private TextView detailProgress;
+    private TextView detailResume;
+    private TextView detailFromStart;
+    private TextView detailBack;
+    private TextView detailFile;
+    private Dialog exitDialog;
+    private Dialog clearDialog;
+
+    private final Runnable clockTick = new Runnable() {
+        @Override
+        public void run() {
+            updateClocks();
+            mainHandler.postDelayed(this, CLOCK_TICK_MS);
+        }
+    };
+
+    private final Runnable spinnerTick = new Runnable() {
+        private int phase;
+
+        @Override
+        public void run() {
+            if (spinnerDots == null) return;
+            for (int i = 0; i < spinnerDots.length; i++) {
+                spinnerDots[i].setAlpha(i == phase ? 1f : 0.3f);
+            }
+            phase = (phase + 1) % spinnerDots.length;
+            mainHandler.postDelayed(this, 320L);
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
-        preferences = new LibraryPreferences(this);
-        new PlaybackResumeStore(this).prune(System.currentTimeMillis());
+        library = new LibraryPreferences(this);
+        settings = new PlayerSettings(this);
+        resumeStore = new PlaybackResumeStore(this, settings.resumeRetentionMs());
         discovery = new DlnaDiscovery(this);
         contentRepository = new DlnaContentRepository(discovery);
         thumbnailRepository = new ThumbnailRepository(this, mainHandler);
-        bindViews();
-        configureGrid();
-        configureActions();
+        adapter = new VideoAdapter(thumbnailRepository, resumeStore, new VideoAdapter.Listener() {
+            @Override
+            public void onTileFocused(VideoItem entry, View thumbFrame) {
+                if (screen != Screen.LIBRARY) return;
+                TvUi.hide(focusLine);
+                TvUi.ring(focusRing, thumbFrame, root, MainActivity.this);
+                setHero(entry);
+            }
+
+            @Override
+            public void onTileSelected(VideoItem entry) {
+                openEntry(entry);
+            }
+        });
+        TvUi.configureScale(this);
+        buildRoot();
         registerBackCallback();
         enterImmersiveMode();
+        mainHandler.postDelayed(clockTick, CLOCK_TICK_MS);
+        updateClocks();
 
+        if (isDebuggable()) {
+            pendingDebugUrl = getIntent().getStringExtra(EXTRA_DEBUG_SERVER_URL);
+        }
         appUpdater = new AppUpdater(this, updateExecutor, mainHandler);
         appUpdater.checkForUpdates();
         discoverServers(true);
     }
 
-    private void bindViews() {
-        videoGrid = findViewById(R.id.video_grid);
-        emptyState = findViewById(R.id.empty_state);
-        emptyTitle = findViewById(R.id.empty_title);
-        emptyDescription = findViewById(R.id.empty_description);
-        libraryProgress = findViewById(R.id.library_progress);
-        searchButton = findViewById(R.id.choose_folder_button);
-        optionsButton = findViewById(R.id.options_button);
-        optionsScrim = findViewById(R.id.options_scrim);
-        optionsPanel = findViewById(R.id.options_panel);
-        serverOption = findViewById(R.id.server_option);
-        discoverOption = findViewById(R.id.discover_option);
-        serverValue = findViewById(R.id.server_value);
-        folderValue = findViewById(R.id.folder_value);
-        clearThumbnailsOption = findViewById(R.id.clear_thumbnails_option);
-        TextView wordmark = findViewById(R.id.app_wordmark);
-        SpannableString wordmarkText = new SpannableString("VibeDLNA Player");
-        wordmarkText.setSpan(
-                new ForegroundColorSpan(getColor(R.color.cyan)),
-                4,
-                8,
-                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-        );
-        wordmark.setText(wordmarkText);
+    // ---------------------------------------------------------------- construcción
+
+    private void buildRoot() {
+        root = new FrameLayout(this);
+        root.setBackgroundColor(TvUi.PAGE_BG);
+        setContentView(root);
+
+        backdropA = new ImageView(this);
+        backdropB = new ImageView(this);
+        for (ImageView backdrop : new ImageView[]{backdropA, backdropB}) {
+            backdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            backdrop.setLayoutParams(new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+            ));
+            root.addView(backdrop);
+        }
+        backdropB.setAlpha(0f);
+
+        root.addView(scrim(new int[]{0xDB000000, 0x99000000, 0x1A000000, 0x00000000},
+                GradientDrawable.Orientation.LEFT_RIGHT));
+        root.addView(scrim(new int[]{0xE6000000, 0x9E000000, 0x00000000},
+                GradientDrawable.Orientation.BOTTOM_TOP));
+
+        screenServers = screen();
+        screenLibrary = screen();
+        screenDetail = screen();
+        screenOptions = screen();
+        root.addView(screenServers);
+        root.addView(screenLibrary);
+        root.addView(screenDetail);
+        root.addView(screenOptions);
+
+        buildServers();
+        buildLibrary();
+        buildDetail();
+        buildOptions();
+
+        focusLine = new View(this);
+        focusLine.setBackgroundColor(Color.WHITE);
+        focusLine.setAlpha(0f);
+        root.addView(focusLine, new FrameLayout.LayoutParams(
+                TvUi.dp(this, 100),
+                TvUi.dp(this, 2),
+                Gravity.TOP | Gravity.START
+        ));
+        GradientDrawable ringShape = new GradientDrawable();
+        ringShape.setStroke(TvUi.dp(this, 2), Color.WHITE);
+        ringShape.setCornerRadius(TvUi.dp(this, 7));
+        ringShape.setColor(Color.TRANSPARENT);
+        focusRing = new View(this);
+        focusRing.setBackground(ringShape);
+        focusRing.setAlpha(0f);
+        root.addView(focusRing, new FrameLayout.LayoutParams(
+                TvUi.dp(this, 100),
+                TvUi.dp(this, 100),
+                Gravity.TOP | Gravity.START
+        ));
+        focusLine.bringToFront();
+        focusRing.bringToFront();
     }
 
-    private void configureGrid() {
-        adapter = new VideoAdapter(thumbnailRepository, this::openEntry);
-        GridLayoutManager layoutManager = new GridLayoutManager(
-                this,
-                CardLayoutMath.GRID_COLUMNS
+    private FrameLayout screen() {
+        FrameLayout layout = new FrameLayout(this);
+        layout.setLayoutParams(new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+        layout.setVisibility(View.GONE);
+        return layout;
+    }
+
+    private View scrim(int[] colors, GradientDrawable.Orientation orientation) {
+        View view = new View(this);
+        view.setBackground(new GradientDrawable(orientation, colors));
+        view.setLayoutParams(new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+        return view;
+    }
+
+    /** Logo, texto de ruta y reloj en la franja superior (left 64, top 44). */
+    private TextView header(FrameLayout parent, String eyebrow) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        FrameLayout.LayoutParams rowParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
         );
-        // Do not ask RecyclerView to bind off-screen cards just to load their
-        // artwork. The repository loads only cards actually displayed.
-        layoutManager.setItemPrefetchEnabled(false);
-        videoGrid.setLayoutManager(layoutManager);
-        videoGrid.setAdapter(adapter);
-        videoGrid.addItemDecoration(new RecyclerView.ItemDecoration() {
+        rowParams.leftMargin = TvUi.dp(this, 64);
+        rowParams.rightMargin = TvUi.dp(this, 64);
+        rowParams.topMargin = TvUi.dp(this, 44);
+        row.setLayoutParams(rowParams);
+
+        View logo = new View(this);
+        GradientDrawable mark = new GradientDrawable();
+        mark.setCornerRadius(TvUi.dp(this, 4));
+        mark.setColor(0xFFE7399C);
+        logo.setBackground(mark);
+        row.addView(logo, new LinearLayout.LayoutParams(TvUi.dp(this, 16), TvUi.dp(this, 16)));
+
+        TextView crumbs = TvUi.text(this, eyebrow, 12f, 0x99FFFFFF, false);
+        crumbs.setLetterSpacing(0.2f);
+        crumbs.setAllCaps(true);
+        LinearLayout.LayoutParams crumbsParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        crumbsParams.leftMargin = TvUi.dp(this, 12);
+        row.addView(crumbs, crumbsParams);
+
+        TextView clock = TvUi.text(this, "", 15f, TvUi.INK_2, false);
+        LinearLayout.LayoutParams clockParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        clockParams.weight = 1f;
+        clockParams.leftMargin = TvUi.dp(this, 12);
+        clock.setGravity(Gravity.END);
+        row.addView(clock, clockParams);
+        clocks.add(clock);
+
+        parent.addView(row);
+        return crumbs;
+    }
+
+    private void buildServers() {
+        header(screenServers, "VibeDLNA");
+
+        TextView eyebrow = TvUi.text(this, "EN ESTA RED", 12f, 0x99FFFFFF, false);
+        eyebrow.setLetterSpacing(0.2f);
+        eyebrow.setAllCaps(true);
+        place(screenServers, eyebrow, 64, 170);
+
+        TextView title = TvUi.text(this, "¿Qué quieres ver?", 44f, TvUi.WHITE, true);
+        place(screenServers, title, 64, 196);
+
+        serversList = new LinearLayout(this);
+        serversList.setOrientation(LinearLayout.VERTICAL);
+        serversList.setClipChildren(false);
+        place(screenServers, serversList, 64, 290);
+
+        serversSpinner = new LinearLayout(this);
+        serversSpinner.setOrientation(LinearLayout.HORIZONTAL);
+        serversSpinner.setGravity(Gravity.CENTER_VERTICAL);
+        spinnerDots = new View[3];
+        for (int i = 0; i < spinnerDots.length; i++) {
+            View dot = new View(this);
+            GradientDrawable shape = new GradientDrawable();
+            shape.setShape(GradientDrawable.OVAL);
+            shape.setColor(TvUi.NOW);
+            dot.setBackground(shape);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    TvUi.dp(this, 7),
+                    TvUi.dp(this, 7)
+            );
+            params.rightMargin = TvUi.dp(this, 6);
+            serversSpinner.addView(dot, params);
+            spinnerDots[i] = dot;
+        }
+        serversHint = TvUi.text(this, "Buscando más servidores en la red", 13f, TvUi.INK_3, false);
+        LinearLayout.LayoutParams hintParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        hintParams.leftMargin = TvUi.dp(this, 8);
+        serversSpinner.addView(serversHint, hintParams);
+        place(screenServers, serversSpinner, 64, 600);
+    }
+
+    private void buildLibrary() {
+        libraryCrumbs = header(screenLibrary, "");
+
+        TextView label = TvUi.text(this, "CARPETAS", 11f, TvUi.INK_3, false);
+        label.setLetterSpacing(0.2f);
+        place(screenLibrary, label, 64, 118);
+
+        folderList = new LinearLayout(this);
+        folderList.setOrientation(LinearLayout.VERTICAL);
+        folderList.setClipChildren(false);
+        place(screenLibrary, folderList, 64, 150);
+
+        heroEyebrow = TvUi.text(this, "", 12f, 0x99FFFFFF, false);
+        heroEyebrow.setLetterSpacing(0.2f);
+        heroEyebrow.setAllCaps(true);
+        place(screenLibrary, heroEyebrow, 420, 118);
+
+        heroTitle = TvUi.text(this, "", 34f, TvUi.WHITE, true);
+        heroTitle.setSingleLine(false);
+        heroTitle.setMaxLines(2);
+        heroTitle.setEllipsize(TextUtils.TruncateAt.END);
+        place(screenLibrary, heroTitle, 420, 146, 700);
+
+        heroMeta = TvUi.text(this, "", 13f, TvUi.INK_3, false);
+        place(screenLibrary, heroMeta, 420, 236);
+
+        gridLabel = TvUi.text(this, "", 11f, TvUi.INK_3, false);
+        gridLabel.setLetterSpacing(0.2f);
+        place(screenLibrary, gridLabel, 420, 288);
+
+        gridMessage = TvUi.text(this, "", 13f, TvUi.INK_3, false);
+        place(screenLibrary, gridMessage, 420, 340);
+
+        grid = new RecyclerView(this);
+        grid.setLayoutManager(new GridLayoutManager(this, 3));
+        grid.setClipToPadding(false);
+        grid.setClipChildren(false);
+        grid.setItemAnimator(null);
+        grid.setAdapter(adapter);
+        grid.addItemDecoration(new RecyclerView.ItemDecoration() {
             @Override
-            public void getItemOffsets(
-                    @NonNull Rect outRect,
-                    @NonNull View view,
-                    @NonNull RecyclerView parent,
-                    @NonNull RecyclerView.State state
-            ) {
-                int parentWidth = parent.getMeasuredWidth();
-                if (parentWidth <= 0) {
-                    parentWidth = getResources().getDisplayMetrics().widthPixels;
-                }
-                int parentHeight = parent.getMeasuredHeight();
-                if (parentHeight <= 0) {
-                    parentHeight = getResources().getDisplayMetrics().heightPixels;
-                }
-                int horizontalSpacing = CardLayoutMath.horizontalSpacingForThreeRows(
-                        parentWidth,
-                        parentHeight,
-                        parent.getPaddingLeft(),
-                        parent.getPaddingTop(),
-                        parent.getPaddingRight(),
-                        parent.getPaddingBottom(),
-                        CardLayoutMath.GRID_COLUMNS,
-                        CardLayoutMath.GRID_VISIBLE_ROWS,
-                        dp(CardLayoutMath.MIN_HORIZONTAL_SPACING_DP),
-                        dp(CardLayoutMath.VERTICAL_SPACING_DP),
-                        dp(CardLayoutMath.CARD_PADDING_DP) * 2,
-                        dp(CardLayoutMath.CARD_PADDING_DP) * 2,
-                        dp(CardLayoutMath.VIDEO_TITLE_HEIGHT_DP)
-                );
-                int verticalSpacing = dp(CardLayoutMath.VERTICAL_SPACING_DP);
-                outRect.set(
-                        horizontalSpacing,
-                        verticalSpacing,
-                        horizontalSpacing,
-                        verticalSpacing
-                );
+            public void getItemOffsets(@NonNull Rect outRect, @NonNull View view,
+                                       @NonNull RecyclerView parent,
+                                       @NonNull RecyclerView.State state) {
+                int horizontal = TvUi.dp(MainActivity.this, 10);
+                int vertical = TvUi.dp(MainActivity.this, 13);
+                outRect.set(horizontal, vertical, horizontal, vertical);
             }
         });
+        FrameLayout.LayoutParams gridParams = new FrameLayout.LayoutParams(
+                TvUi.dp(this, 648),
+                TvUi.dp(this, 400),
+                Gravity.TOP | Gravity.START
+        );
+        gridParams.leftMargin = TvUi.dp(this, 410);
+        gridParams.topMargin = TvUi.dp(this, 316);
+        grid.setLayoutParams(gridParams);
+        screenLibrary.addView(grid);
     }
 
-    private void configureActions() {
-        searchButton.setOnClickListener(view -> discoverServers(false));
-        optionsButton.setOnClickListener(view -> showOptions());
-        serverOption.setOnClickListener(view -> {
-            closeOptions();
-            if (availableServers.isEmpty()) discoverServers(false);
-            else showServerDialog();
-        });
-        discoverOption.setOnClickListener(view -> {
-            closeOptions();
-            discoverServers(false);
-        });
-        clearThumbnailsOption.setOnClickListener(view -> showClearThumbnailsDialog());
+    private void buildDetail() {
+        detailCrumbs = header(screenDetail, "");
+
+        LinearLayout block = new LinearLayout(this);
+        block.setOrientation(LinearLayout.VERTICAL);
+        FrameLayout.LayoutParams blockParams = new FrameLayout.LayoutParams(
+                TvUi.dp(this, 760),
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM | Gravity.START
+        );
+        blockParams.leftMargin = TvUi.dp(this, 64);
+        blockParams.bottomMargin = TvUi.dp(this, 64);
+        block.setLayoutParams(blockParams);
+        screenDetail.addView(block);
+
+        detailEyebrow = TvUi.text(this, "", 12f, 0x99FFFFFF, false);
+        detailEyebrow.setLetterSpacing(0.2f);
+        detailEyebrow.setAllCaps(true);
+        block.addView(detailEyebrow);
+
+        detailTitle = TvUi.text(this, "", 46f, TvUi.WHITE, true);
+        detailTitle.setSingleLine(false);
+        detailTitle.setMaxLines(2);
+        detailTitle.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        titleParams.topMargin = TvUi.dp(this, 12);
+        block.addView(detailTitle, titleParams);
+
+        detailFacts = new LinearLayout(this);
+        detailFacts.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams factsParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        factsParams.topMargin = TvUi.dp(this, 26);
+        block.addView(detailFacts, factsParams);
+
+        LinearLayout progressRow = new LinearLayout(this);
+        progressRow.setOrientation(LinearLayout.HORIZONTAL);
+        progressRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        progressParams.topMargin = TvUi.dp(this, 28);
+        block.addView(progressRow, progressParams);
+
+        FrameLayout track = new FrameLayout(this);
+        detailBarTrack = track;
+        track.setBackgroundColor(0x38FFFFFF);
+        progressRow.addView(track, new LinearLayout.LayoutParams(TvUi.dp(this, 300), TvUi.dp(this, 4)));
+        detailBar = new View(this);
+        detailBar.setBackgroundColor(TvUi.NOW);
+        track.addView(detailBar, new FrameLayout.LayoutParams(0, TvUi.dp(this, 4)));
+
+        detailProgress = TvUi.text(this, "", 14f, TvUi.INK_2, false);
+        LinearLayout.LayoutParams progressTextParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        progressTextParams.leftMargin = TvUi.dp(this, 18);
+        progressRow.addView(detailProgress, progressTextParams);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setClipChildren(false);
+        LinearLayout.LayoutParams actionsParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        actionsParams.topMargin = TvUi.dp(this, 26);
+        block.addView(actions, actionsParams);
+        detailResume = actionText(actions, "Reanudar", 34);
+        detailFromStart = actionText(actions, "Desde el inicio", 34);
+        detailBack = actionText(actions, "Volver a la carpeta", 0);
+        detailResume.setOnClickListener(view -> startPlayer(detailEntry, detailStart()));
+        detailFromStart.setOnClickListener(view -> startPlayer(detailEntry, 0L));
+        detailBack.setOnClickListener(view -> showLibrary(true));
+
+        detailFile = TvUi.text(this, "", 12f, TvUi.INK_3, false);
+        detailFile.setTypeface(Typeface.MONOSPACE);
+        LinearLayout.LayoutParams fileParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        fileParams.topMargin = TvUi.dp(this, 22);
+        block.addView(detailFile, fileParams);
     }
+
+    private TextView actionText(LinearLayout row, String label, int marginDp) {
+        TextView view = TvUi.text(this, label, 18f, TvUi.INK_2, false);
+        view.setFocusable(true);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        params.rightMargin = TvUi.dp(this, marginDp);
+        row.addView(view, params);
+        view.setOnFocusChangeListener((v, focused) -> {
+            TvUi.setFocusedText(view, focused);
+            if (focused) TvUi.underline(focusLine, view, root, this);
+        });
+        return view;
+    }
+
+    private void buildOptions() {
+        TextView eyebrow = TvUi.text(this, "OPCIONES", 12f, 0x99FFFFFF, false);
+        eyebrow.setLetterSpacing(0.2f);
+        eyebrow.setAllCaps(true);
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setOrientation(LinearLayout.HORIZONTAL);
+        tabs.setGravity(Gravity.CENTER_VERTICAL);
+        FrameLayout.LayoutParams tabsParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP | Gravity.START
+        );
+        tabsParams.leftMargin = TvUi.dp(this, 64);
+        tabsParams.topMargin = TvUi.dp(this, 44);
+        tabs.setLayoutParams(tabsParams);
+        tabs.addView(eyebrow, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        ) {{
+            rightMargin = TvUi.dp(MainActivity.this, 30);
+        }});
+        screenOptions.addView(tabs);
+
+        LinearLayout rows = new LinearLayout(this);
+        rows.setOrientation(LinearLayout.VERTICAL);
+        place(screenOptions, rows, 64, 132, 600);
+
+        // Velo fuerte desde la izquierda, como el mockup.
+        screenOptions.addView(scrim(new int[]{0xEB000000, 0xC7000000, 0x33000000, 0x00000000},
+                GradientDrawable.Orientation.LEFT_RIGHT), 0);
+
+        optionsScreen = new OptionsScreen(this, settings, new OptionsScreen.Host() {
+            @Override
+            public void onSortChanged() {
+                renderGrid();
+            }
+
+            @Override
+            public void onRetentionChanged() {
+                resumeStore = new PlaybackResumeStore(MainActivity.this, settings.resumeRetentionMs());
+                adapter.setResume(resumeStore);
+            }
+
+            @Override
+            public void onClearThumbnails() {
+                showClearThumbnailsDialog();
+            }
+
+            @Override
+            public void onOpenServersRequested() {
+                closeOptions();
+                startDiscovery(false);
+            }
+
+            @Override
+            public void onCheckUpdatesRequested() {
+                appUpdater.checkForUpdates();
+            }
+        }, "0.4.0", tabs, rows);
+    }
+
+    // ---------------------------------------------------------------- utilidades de vista
+
+    private void place(FrameLayout parent, View view, int leftDp, int topDp) {
+        place(parent, view, leftDp, topDp, -1);
+    }
+
+    private void place(FrameLayout parent, View view, int leftDp, int topDp, int widthDp) {
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                widthDp < 0 ? FrameLayout.LayoutParams.WRAP_CONTENT : TvUi.dp(this, widthDp),
+                FrameLayout.LayoutParams.WRAP_CONTENT
+        );
+        params.leftMargin = TvUi.dp(this, leftDp);
+        params.topMargin = TvUi.dp(this, topDp);
+        view.setLayoutParams(params);
+        parent.addView(view);
+    }
+
+    private void showScreen(Screen next) {
+        screen = next;
+        screenServers.setVisibility(next == Screen.SERVERS ? View.VISIBLE : View.GONE);
+        // Con Opciones abiertas la biblioteca se oculta: solo queda el fondo de miniatura.
+        screenLibrary.setVisibility(next == Screen.LIBRARY ? View.VISIBLE : View.GONE);
+        screenDetail.setVisibility(next == Screen.DETAIL ? View.VISIBLE : View.GONE);
+        screenOptions.setVisibility(next == Screen.OPTIONS ? View.VISIBLE : View.GONE);
+        if (next != Screen.OPTIONS) {
+            TvUi.hide(focusLine);
+            TvUi.hide(focusRing);
+        }
+        if (next == Screen.SERVERS) {
+            mainHandler.removeCallbacks(spinnerTick);
+            if (serversSpinner.getVisibility() == View.VISIBLE) mainHandler.post(spinnerTick);
+        } else {
+            mainHandler.removeCallbacks(spinnerTick);
+        }
+    }
+
+    private void updateClocks() {
+        String text = new SimpleDateFormat("EEEE d · HH:mm", new Locale("es")).format(new Date());
+        for (TextView clock : clocks) clock.setText(text);
+    }
+
+    private void setLoadingServers(boolean loading) {
+        serversSpinner.setVisibility(loading ? View.VISIBLE : View.GONE);
+        if (loading) mainHandler.post(spinnerTick);
+        else mainHandler.removeCallbacks(spinnerTick);
+    }
+
+    // ---------------------------------------------------------------- servidores
 
     private void discoverServers(boolean automatic) {
+        startDiscovery(automatic);
+    }
+
+    /**
+     * Busca servidores. Con {@code automatic}, entra directo al último si es el
+     * único en línea y la preferencia lo pide; si no, muestra la lista.
+     */
+    private void startDiscovery(boolean automatic) {
         int generation = ++discoveryGeneration;
-        showLoading(
-                R.string.searching_servers,
-                R.string.searching_servers_description
-        );
+        showScreen(Screen.SERVERS);
+        setLoadingServers(true);
+        renderServers(new ArrayList<>(), true);
+        String debugUrl = pendingDebugUrl;
+        pendingDebugUrl = null;
         dlnaExecutor.submit(() -> {
+            if (debugUrl != null) {
+                try {
+                    discovery.registerDebugServer(debugUrl);
+                    debugUrlUsed = debugUrl;
+                } catch (Exception failure) {
+                    Log.w(TAG, "No se pudo registrar el servidor de depuración", failure);
+                }
+            }
             List<DlnaServer> found = discovery.discover(5_000L);
+            for (DlnaServer server : found) {
+                server.setSummary(contentRepository.rootSummary(server));
+            }
             mainHandler.post(() -> {
                 if (generation != discoveryGeneration || isFinishing()) return;
-                availableServers.clear();
-                availableServers.addAll(found);
-                String savedUdn = preferences.getServerUdn();
-                DlnaServer saved = findServer(savedUdn);
-
-                if (automatic && saved != null) {
-                    selectAvailableServer(saved, false);
+                setLoadingServers(false);
+                online.clear();
+                online.addAll(found);
+                long now = System.currentTimeMillis();
+                for (DlnaServer server : online) settings.markSeen(server.getUdn(), now);
+                DlnaServer saved = findOnline(library.getServerUdn());
+                if (automatic && online.size() == 1 && saved != null
+                        && settings.openAtLastServer()) {
+                    enterServer(saved);
                     return;
                 }
-                if (availableServers.isEmpty()) {
-                    showNoServers();
-                    return;
-                }
-                if (automatic && !savedUdn.isBlank()) {
-                    emptyTitle.setText(R.string.saved_server_unavailable);
-                    emptyDescription.setText(R.string.no_servers_description);
-                    libraryProgress.setVisibility(View.GONE);
-                    searchButton.setVisibility(View.VISIBLE);
-                }
-                showServerDialog();
+                renderServers(online, false);
             });
         });
     }
 
-    private DlnaServer findServer(String udn) {
+    private DlnaServer findOnline(String udn) {
         if (udn == null || udn.isBlank()) return null;
-        for (DlnaServer server : availableServers) {
+        for (DlnaServer server : online) {
             if (udn.equals(server.getUdn())) return server;
         }
         return null;
     }
 
-    private void showServerDialog() {
-        if (availableServers.isEmpty()) {
-            showNoServers();
-            return;
+    private void renderServers(List<DlnaServer> servers, boolean searching) {
+        serversList.removeAllViews();
+        for (DlnaServer server : servers) {
+            serversList.addView(serverRow(server.getFriendlyName(), server.subtitle(), true,
+                    () -> enterServer(server)));
         }
-        if (serverDialog != null && serverDialog.isShowing()) return;
-
-        Dialog dialog = new Dialog(this);
-        serverDialog = dialog;
-        dialog.setContentView(R.layout.dialog_dlna_servers);
-        dialog.setCanceledOnTouchOutside(false);
-        LinearLayout container = dialog.findViewById(R.id.server_options);
-        Button focusTarget = null;
-        String savedUdn = preferences.getServerUdn();
-        for (DlnaServer server : availableServers) {
-            Button button = createServerButton(server.getFriendlyName());
-            button.setOnClickListener(view -> {
-                dialog.dismiss();
-                selectAvailableServer(server, true);
+        String savedUdn = library.getServerUdn();
+        // Mientras busca no se marca como caído al guardado: aún puede aparecer.
+        if (!searching && findOnline(savedUdn) == null && !savedUdn.isBlank()) {
+            long seen = settings.lastSeen(savedUdn);
+            String since = seen > 0L
+                    ? new SimpleDateFormat("HH:mm", new Locale("es")).format(new Date(seen))
+                    : "";
+            String detail = since.isEmpty()
+                    ? "no responde"
+                    : "no responde desde las " + since;
+            serversList.addView(serverRow(library.getServerName(), detail, false, () -> {
+            }));
+        }
+        if (serversList.getChildCount() > 0) {
+            serversList.post(() -> {
+                View first = serversList.getChildAt(0);
+                if (first != null) first.requestFocus();
             });
-            container.addView(button);
-            if (focusTarget == null || server.getUdn().equals(savedUdn)) {
-                focusTarget = button;
-            }
         }
-        Button initialFocus = focusTarget;
-        dialog.setOnShowListener(ignored -> {
-            if (initialFocus != null) initialFocus.requestFocus();
-        });
-        dialog.setOnDismissListener(ignored -> {
-            if (serverDialog == dialog) serverDialog = null;
-            if (!isFinishing()) enterImmersiveMode();
-        });
-        Window window = dialog.getWindow();
-        if (window != null) {
-            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-            WindowManager.LayoutParams attributes = window.getAttributes();
-            attributes.width = WindowManager.LayoutParams.WRAP_CONTENT;
-            attributes.height = WindowManager.LayoutParams.WRAP_CONTENT;
-            attributes.dimAmount = 0.72f;
-            window.setAttributes(attributes);
-        }
-        dialog.show();
+        showScreen(Screen.SERVERS);
     }
 
-    private Button createServerButton(String name) {
-        Button button = new Button(this);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(48)
+    private View serverRow(String name, String subtitle, boolean online, Runnable onSelect) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setFocusable(true);
+        row.setClipChildren(false);
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
         );
-        params.bottomMargin = dp(8);
-        button.setLayoutParams(params);
-        button.setBackgroundResource(R.drawable.focus_button_compact);
-        button.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-        button.setIncludeFontPadding(false);
-        button.setMinHeight(0);
-        button.setMinWidth(0);
-        button.setPadding(dp(14), 0, dp(14), 0);
-        button.setText(name);
-        button.setTextColor(getColor(R.color.white));
-        button.setTextSize(11);
-        button.setAllCaps(false);
-        return button;
+        rowParams.bottomMargin = TvUi.dp(this, 22);
+        row.setLayoutParams(rowParams);
+
+        LinearLayout nameLine = new LinearLayout(this);
+        nameLine.setOrientation(LinearLayout.HORIZONTAL);
+        nameLine.setGravity(Gravity.CENTER_VERTICAL);
+        nameLine.setClipChildren(false);
+        TextView nameView = TvUi.text(this, name, 26f, online ? TvUi.INK_2 : TvUi.INK_4, false);
+        nameLine.addView(nameView);
+        if (online) {
+            View dot = new View(this);
+            GradientDrawable shape = new GradientDrawable();
+            shape.setShape(GradientDrawable.OVAL);
+            shape.setColor(TvUi.LIVE);
+            dot.setBackground(shape);
+            LinearLayout.LayoutParams dotParams = new LinearLayout.LayoutParams(
+                    TvUi.dp(this, 7),
+                    TvUi.dp(this, 7)
+            );
+            dotParams.leftMargin = TvUi.dp(this, 10);
+            nameLine.addView(dot, dotParams);
+        }
+        row.addView(nameLine);
+
+        TextView sub = TvUi.text(this, subtitle, 13f, online ? TvUi.INK_3 : TvUi.INK_4, false);
+        LinearLayout.LayoutParams subParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        subParams.topMargin = TvUi.dp(this, 6);
+        row.addView(sub, subParams);
+
+        row.setOnClickListener(view -> onSelect.run());
+        row.setOnFocusChangeListener((view, focused) -> {
+            TvUi.setFocusedText(nameView, focused && online);
+            if (focused) TvUi.underline(focusLine, nameView, root, this);
+            else if (online) TvUi.hide(focusLine);
+        });
+        return row;
     }
 
-    private void selectAvailableServer(DlnaServer server, boolean resetFolder) {
+    // ---------------------------------------------------------------- biblioteca
+
+    private void enterServer(DlnaServer server) {
+        if (!server.getUdn().equals(library.getServerUdn())) {
+            library.selectServer(server);
+        }
         currentServer = server;
-        if (resetFolder || !server.getUdn().equals(preferences.getServerUdn())) {
-            preferences.selectServer(server);
-        }
-        String containerId = resetFolder ? "0" : preferences.getContainerId();
-        String containerName = resetFolder ? "Inicio" : preferences.getContainerName();
-        browseContainer(containerId, containerName);
+        selectedFolder = null;
+        levels.reset();
+        folderListStack.clear();
+        folders = new ArrayList<>();
+        videos = new ArrayList<>();
+        showScreen(Screen.LIBRARY);
+        gridMessage.setText("Cargando carpeta remota…");
+        gridMessage.setVisibility(View.VISIBLE);
+        renderFolders();
+        renderGrid();
+        browseAsync(server, BrowseStack.ROOT_ID, result -> {
+            if (result == null) {
+                showLibraryError();
+                return;
+            }
+            folders = containersSorted(result.entries);
+            renderFolders();
+            String savedId = library.getContainerId();
+            if (savedId != null && !savedId.isBlank() && !BrowseStack.ROOT_ID.equals(savedId)) {
+                // Se restaura como una apertura: si tiene subcarpetas, la columna las muestra.
+                selectFolder(VideoItem.container(
+                        server.getUdn(),
+                        savedId,
+                        BrowseStack.ROOT_ID,
+                        library.getContainerName()
+                ), true, true);
+            } else if (!folders.isEmpty()) {
+                // Al entrar se abre la primera carpeta; si solo tiene subcarpetas, la primera de ellas.
+                selectFolder(folders.get(0), true, true);
+            } else {
+                selectedFolder = null;
+                videos = new ArrayList<>();
+                renderGrid();
+            }
+        });
     }
 
-    private void browseContainer(String containerId, String containerName) {
-        if (currentServer == null) return;
-        int generation = ++browseGeneration;
-        showLoading(
-                R.string.loading_remote_folder,
-                R.string.searching_servers_description
-        );
+    private void showLibraryError() {
+        folders = new ArrayList<>();
+        videos = new ArrayList<>();
+        renderFolders();
+        adapter.submit(videos);
+        gridMessage.setText("No se pudo leer la carpeta del servidor DLNA.");
+        gridMessage.setVisibility(View.VISIBLE);
+        renderHeader();
+    }
+
+    /** Carga una carpeta: sus videos van a la grilla y, si tiene subcarpetas, a la columna. */
+    private void selectFolder(VideoItem folder, boolean descend) {
+        selectFolder(folder, descend, false);
+    }
+
+    /**
+     * @param autoOpen al entrar al servidor: si la carpeta no tiene videos propios,
+     *                 abre su primera subcarpeta para que la grilla no quede vacía.
+     */
+    private void selectFolder(VideoItem folder, boolean descend, boolean autoOpen) {
         DlnaServer server = currentServer;
+        if (server == null) return;
+        browseAsync(server, folder.getId(), result -> {
+            if (server != currentServer) return;
+            if (result == null) {
+                showLibraryError();
+                return;
+            }
+            selectedFolder = folder;
+            library.selectContainer(folder.getId(), folder.getName());
+            List<VideoItem> children = containersSorted(result.entries);
+            if (descend && !children.isEmpty()) {
+                folderListStack.add(new ArrayList<>(folders));
+                levels.push(folder.getId(), folder.getName());
+                folders = children;
+                focusFolderRow(null);
+            }
+            renderFolders();
+            videos = arrange(result.entries);
+            adapter.submit(videos);
+            renderGrid();
+            renderHeader();
+            if (autoOpen && videos.isEmpty() && !children.isEmpty()) {
+                selectFolder(children.get(0), true, true);
+                return;
+            }
+            if (autoOpen) focusLibraryEntry();
+        });
+    }
+
+    /** Foco inicial de la biblioteca: la primera tarjeta, o la carpeta si no hay videos. */
+    private void focusLibraryEntry() {
+        grid.post(() -> {
+            RecyclerView.ViewHolder holder = grid.findViewHolderForAdapterPosition(0);
+            if (holder != null) holder.itemView.requestFocus();
+            else focusFolderRow(selectedFolder == null ? null : selectedFolder.getId());
+        });
+    }
+
+    private void popLevel() {
+        BrowseStack.Level left = levels.pop();
+        if (left == null) return;
+        if (!folderListStack.isEmpty()) {
+            folders = folderListStack.remove(folderListStack.size() - 1);
+        }
+        renderFolders();
+        focusFolderRow(left.id);
+    }
+
+    private void browseAsync(DlnaServer server, String containerId, BrowseCallback callback) {
+        int generation = ++browseGeneration;
         dlnaExecutor.submit(() -> {
-            DlnaContentRepository.BrowseResult result;
+            DlnaContentRepository.BrowseResult loaded;
             try {
-                result = contentRepository.browse(server, containerId);
+                loaded = contentRepository.browse(server, containerId);
             } catch (Exception error) {
                 Log.w(TAG, "No se pudo leer la carpeta DLNA " + containerId, error);
-                result = null;
+                loaded = null;
             }
-            DlnaContentRepository.BrowseResult loaded = result;
+            DlnaContentRepository.BrowseResult result = loaded;
             mainHandler.post(() -> {
-                if (generation != browseGeneration || isFinishing()
-                        || currentServer != server) return;
-                if (loaded == null) {
-                    showBrowseError();
-                    return;
-                }
-                currentContainerId = containerId;
-                currentContainerName = containerName;
-                currentParentId = loaded.parentId;
-                containerNames.put(containerId, containerName);
-                preferences.selectContainer(containerId, containerName);
-                showEntries(loaded.entries);
+                if (generation != browseGeneration || isFinishing()) return;
+                callback.onBrowsed(result);
             });
         });
     }
 
-    private void showEntries(List<VideoItem> loaded) {
-        // Cancel work from the previous folder before replacing the adapter data.
-        // Otherwise late thumbnail callbacks can repaint cards from another folder.
-        thumbnailRepository.resetForFolder();
-        entries.clear();
-        entries.addAll(loaded);
+    private interface BrowseCallback {
+        void onBrowsed(DlnaContentRepository.BrowseResult result);
+    }
+
+    private List<VideoItem> containersSorted(List<VideoItem> entries) {
+        List<VideoItem> list = new ArrayList<>();
         for (VideoItem entry : entries) {
-            if (entry.isContainer()) containerNames.put(entry.getId(), entry.getName());
+            if (entry.isContainer()) list.add(entry);
         }
-        Collections.sort(entries, new Comparator<VideoItem>() {
-            @Override
-            public int compare(VideoItem left, VideoItem right) {
-                if (left.isContainer() != right.isContainer()) {
-                    return left.isContainer() ? -1 : 1;
+        Collections.sort(list, (left, right) -> left.getName().toLowerCase(Locale.ROOT)
+                .compareTo(right.getName().toLowerCase(Locale.ROOT)));
+        return list;
+    }
+
+    /** Videos de la carpeta: sin los que la TV no puede abrir (si la opción lo pide) y en el orden elegido. */
+    private List<VideoItem> arrange(List<VideoItem> entries) {
+        List<VideoItem> list = new ArrayList<>();
+        java.util.Set<String> decoders = null;
+        if (!settings.showUnplayable()) decoders = supportedMimes();
+        for (VideoItem entry : entries) {
+            if (entry.isContainer()) continue;
+            if (decoders != null && !DlnaMediaFormat.unsupportedCodecs(
+                    entry.getMedia().codecs, decoders).isEmpty()) {
+                continue;
+            }
+            list.add(entry);
+        }
+        final int order = settings.sortOrder();
+        Collections.sort(list, (left, right) -> {
+            switch (order) {
+                case PlayerSettings.SORT_RECENT: {
+                    int compare = right.getMedia().date.compareTo(left.getMedia().date);
+                    return compare != 0 ? compare : left.getName().compareToIgnoreCase(right.getName());
                 }
-                return left.getName().compareToIgnoreCase(right.getName());
+                case PlayerSettings.SORT_SIZE:
+                    return Long.compare(right.getMedia().sizeBytes, left.getMedia().sizeBytes);
+                default:
+                    return left.getName().compareToIgnoreCase(right.getName());
             }
         });
-        adapter.submit(entries);
-        updateHeader();
-        updateOptionValues();
-        libraryProgress.setVisibility(View.GONE);
-        searchButton.setVisibility(View.GONE);
-        if (entries.isEmpty()) {
-            videoGrid.setVisibility(View.GONE);
-            emptyState.setVisibility(View.VISIBLE);
-            emptyTitle.setText(R.string.empty_remote_folder);
-            emptyDescription.setText(R.string.privacy_note);
-            emptyDescription.setVisibility(View.VISIBLE);
-        } else {
-            emptyState.setVisibility(View.GONE);
-            videoGrid.setVisibility(View.VISIBLE);
-            videoGrid.post(this::focusFirstEntry);
+        return list;
+    }
+
+    private java.util.Set<String> supportedMimes() {
+        if (!supportedMimesLoaded) {
+            supportedMimes = DlnaMediaFormat.supportedDecoderMimes();
+            supportedMimesLoaded = true;
         }
+        return supportedMimes;
+    }
+
+    private void renderFolders() {
+        folderList.removeAllViews();
+        if (!levels.isRoot() && levels.parent() != null) {
+            folderList.addView(folderRow(UP_ROW_ID, "‹ " + levels.parent().name, null, false, () -> popLevel()));
+        }
+        for (VideoItem folder : folders) {
+            boolean open = selectedFolder != null && folder.getId().equals(selectedFolder.getId());
+            folderList.addView(folderRow(folder.getId(), folder.getName(),
+                    open ? String.valueOf(videos.size()) : null, open,
+                    () -> selectFolder(folder, true)));
+        }
+        if (currentServer != null) {
+            TextView change = TvUi.text(this, "Cambiar de servidor", 14f, TvUi.INK_2, false);
+            change.setFocusable(true);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+            );
+            params.topMargin = TvUi.dp(this, 14);
+            folderList.addView(change, params);
+            change.setOnClickListener(view -> startDiscovery(false));
+            change.setOnFocusChangeListener((view, focused) -> {
+                TvUi.setFocusedText(change, focused);
+                if (focused) TvUi.underline(focusLine, change, root, this);
+            });
+        }
+    }
+
+    private View folderRow(String id, String name, String count, boolean open, Runnable action) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setFocusable(true);
+        row.setClipChildren(false);
+        row.setTag(id);
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        rowParams.bottomMargin = TvUi.dp(this, id.equals(UP_ROW_ID) ? 16 : 16);
+        row.setLayoutParams(rowParams);
+
+        TextView label = TvUi.text(this, name, id.equals(UP_ROW_ID) ? 14f : 17f,
+                open ? TvUi.WHITE : TvUi.INK_2, open);
+        row.addView(label);
+        if (open) {
+            View dot = new View(this);
+            GradientDrawable shape = new GradientDrawable();
+            shape.setShape(GradientDrawable.OVAL);
+            shape.setColor(TvUi.LIVE);
+            dot.setBackground(shape);
+            LinearLayout.LayoutParams dotParams = new LinearLayout.LayoutParams(
+                    TvUi.dp(this, 7),
+                    TvUi.dp(this, 7)
+            );
+            dotParams.leftMargin = TvUi.dp(this, 10);
+            row.addView(dot, dotParams);
+        }
+        if (count != null) {
+            TextView countView = TvUi.text(this, count, 13f, TvUi.INK_3, false);
+            LinearLayout.LayoutParams countParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+            );
+            countParams.leftMargin = TvUi.dp(this, 10);
+            row.addView(countView, countParams);
+        }
+        row.setOnClickListener(view -> action.run());
+        row.setOnFocusChangeListener((view, focused) -> {
+            TvUi.setFocusedText(label, focused);
+            label.setTextColor(focused ? TvUi.WHITE : (open ? TvUi.WHITE : TvUi.INK_2));
+            if (focused) TvUi.underline(focusLine, label, root, this);
+            else TvUi.hide(focusLine);
+        });
+        return row;
+    }
+
+    private void focusFolderRow(String id) {
+        folderList.post(() -> {
+            View target = null;
+            for (int i = 0; i < folderList.getChildCount(); i++) {
+                View child = folderList.getChildAt(i);
+                if (id != null && id.equals(child.getTag())) target = child;
+            }
+            if (target == null && folderList.getChildCount() > 0) {
+                target = folderList.getChildAt(folderList.getChildCount() > 1 ? 1 : 0);
+            }
+            if (target != null) target.requestFocus();
+        });
+    }
+
+    private void renderHeader() {
+        String server = currentServer == null ? "" : currentServer.getFriendlyName();
+        String folder = selectedFolder == null ? "" : selectedFolder.getName();
+        libraryCrumbs.setText(DlnaMediaFormat.join(
+                java.util.Arrays.asList(server, folder), " · ").toUpperCase(Locale.ROOT));
+    }
+
+    private void renderGrid() {
+        renderHeader();
+        String folder = selectedFolder == null ? "" : selectedFolder.getName();
+        String order = OptionsScreen.sortLabel(settings.sortOrder()).toUpperCase(Locale.ROOT);
+        int count = videos.size();
+        gridLabel.setText(folder.toUpperCase(Locale.ROOT) + " · " + count
+                + (count == 1 ? " VIDEO" : " VIDEOS") + " · " + order);
+        adapter.submit(videos);
+        if (videos.isEmpty()) {
+            if (selectedFolder != null) {
+                gridMessage.setText("Esta carpeta no contiene videos.");
+                gridMessage.setVisibility(View.VISIBLE);
+            }
+        } else {
+            gridMessage.setVisibility(View.GONE);
+        }
+        grid.setVisibility(View.VISIBLE);
+    }
+
+    private void showLibrary(boolean focusGrid) {
+        showScreen(Screen.LIBRARY);
+        renderHeader();
+        if (focusGrid && !videos.isEmpty()) {
+            grid.post(() -> {
+                RecyclerView.ViewHolder holder = grid.findViewHolderForAdapterPosition(0);
+                if (holder != null) holder.itemView.requestFocus();
+            });
+        } else {
+            focusFolderRow(selectedFolder == null ? null : selectedFolder.getId());
+        }
+    }
+
+    private void setHero(VideoItem entry) {
+        MediaInfo media = entry.getMedia();
+        PlaybackResumeStore.ResumePoint point = resumeStore.get(entry.stableKey(), System.currentTimeMillis());
+        if (point != null) {
+            heroEyebrow.setText("• " + DlnaMediaFormat.progressLabel(point.positionMs, point.durationMs));
+            heroEyebrow.setTextColor(TvUi.NOW);
+        } else {
+            String year = DlnaMediaFormat.year(media.date);
+            String duration = entry.getDurationMs() > 0L ? DlnaMediaFormat.duration(entry.getDurationMs()) : "";
+            heroEyebrow.setText(DlnaMediaFormat.join(java.util.Arrays.asList(year, duration), " · "));
+            heroEyebrow.setTextColor(0x99FFFFFF);
+        }
+        heroTitle.setText(entry.getName());
+        heroMeta.setText(DlnaMediaFormat.mediaLine(media));
+        showBackdrop(entry);
+    }
+
+    /** Fondo: la miniatura del video marcado con cruce de 500 ms, o un degradado si no hay. */
+    private void showBackdrop(VideoItem entry) {
+        String token = entry.stableKey() + ":" + backdropFlip;
+        backdropToken = token;
+        thumbnailRepository.load(entry, (bitmap, ignoredSource) -> {
+            if (!token.equals(backdropToken)) return;
+            // Cruce: la capa oculta recibe la imagen y la visible se desvanece.
+            ImageView incoming = backdropFlip % 2 == 0 ? backdropA : backdropB;
+            ImageView outgoing = incoming == backdropA ? backdropB : backdropA;
+            incoming.setImageBitmap(bitmap);
+            incoming.setBackground(bitmap == null ? TvUi.gradientFor(entry.getName()) : null);
+            incoming.animate().alpha(1f).setDuration(500L).start();
+            outgoing.animate().alpha(0f).setDuration(500L).start();
+            backdropFlip++;
+        });
     }
 
     private void openEntry(VideoItem entry) {
-        if (entry.isContainer()) {
-            browseContainer(entry.getId(), entry.getName());
-            return;
+        PlaybackResumeStore.ResumePoint point = resumeStore.get(entry.stableKey(), System.currentTimeMillis());
+        if (point != null) {
+            openDetail(entry, point);
+        } else {
+            startPlayer(entry, 0L);
         }
-        // Stop announced-artwork downloads before opening the media connection.
-        thumbnailRepository.pause();
+    }
+
+    // ---------------------------------------------------------------- detalle
+
+    private void openDetail(VideoItem entry, PlaybackResumeStore.ResumePoint point) {
+        detailEntry = entry;
+        detailPoint = point;
+        returnScreen = Screen.LIBRARY;
+        MediaInfo media = entry.getMedia();
+        String folder = selectedFolder == null ? "" : selectedFolder.getName();
+        String server = currentServer == null ? "" : currentServer.getFriendlyName();
+        detailCrumbs.setText(DlnaMediaFormat.join(java.util.Arrays.asList(server, folder), " · ")
+                .toUpperCase(Locale.ROOT));
+        String year = DlnaMediaFormat.year(media.date);
+        String duration = DlnaMediaFormat.duration(entry.getDurationMs());
+        detailEyebrow.setText(DlnaMediaFormat.join(java.util.Arrays.asList(year, duration), " · "));
+        detailTitle.setText(entry.getName());
+
+        detailFacts.removeAllViews();
+        addFact(detailFacts, "Imagen", DlnaMediaFormat.qualityLabel(media.height()), 0);
+        addFact(detailFacts, "Formato", media.codecs, 34);
+        String file = DlnaMediaFormat.join(java.util.Arrays.asList(
+                DlnaMediaFormat.size(media.sizeBytes),
+                DlnaMediaFormat.mbps(media.bitrateBytesPerSecond)), " · ");
+        addFact(detailFacts, "Archivo", file, 34);
+
+        int percent = point == null ? 0 : DlnaMediaFormat.percent(point.positionMs, point.durationMs);
+        LinearLayout.LayoutParams barParams = (LinearLayout.LayoutParams) detailBarTrack.getLayoutParams();
+        barParams.width = TvUi.dp(this, 300);
+        detailBar.getLayoutParams().width = TvUi.dp(this, 300) * percent / 100;
+        detailBar.requestLayout();
+        if (point != null) {
+            detailProgress.setText(DlnaMediaFormat.duration(point.positionMs) + " de "
+                    + DlnaMediaFormat.duration(point.durationMs) + " · quedan "
+                    + DlnaMediaFormat.remaining(point.durationMs - point.positionMs)
+                    + " · se recuerda " + retentionPhrase());
+            detailResume.setText("Reanudar desde " + DlnaMediaFormat.duration(point.positionMs));
+        } else {
+            detailProgress.setText("Sin empezar");
+            detailResume.setText("Reproducir");
+        }
+        detailFile.setText(DlnaMediaFormat.join(java.util.Arrays.asList(server, folder, entry.getName()),
+                " / "));
+        showScreen(Screen.DETAIL);
+        showBackdrop(entry);
+        detailResume.post(() -> detailResume.requestFocus());
+    }
+
+    private long detailStart() {
+        return detailPoint == null ? 0L : detailPoint.positionMs;
+    }
+
+    private void addFact(LinearLayout row, String label, String value, int leftDp) {
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        params.rightMargin = TvUi.dp(this, leftDp);
+        column.setLayoutParams(params);
+        TextView name = TvUi.text(this, label.toUpperCase(Locale.ROOT), 11f, TvUi.INK_3, false);
+        name.setLetterSpacing(0.16f);
+        column.addView(name);
+        TextView content = TvUi.text(this, value == null || value.isEmpty() ? "—" : value,
+                15f, TvUi.WHITE, false);
+        LinearLayout.LayoutParams contentParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        contentParams.topMargin = TvUi.dp(this, 4);
+        column.addView(content, contentParams);
+        row.addView(column);
+    }
+
+    private String retentionPhrase() {
+        switch (settings.resumeRetention()) {
+            case PlayerSettings.RETENTION_DAY:
+                return "por 1 día";
+            case PlayerSettings.RETENTION_FOREVER:
+                return "siempre";
+            default:
+                return "por 1 hora";
+        }
+    }
+
+    // ---------------------------------------------------------------- reproductor
+
+    private void startPlayer(VideoItem entry, long startMs) {
+        if (entry == null || entry.getUri() == null) return;
         Intent intent = new Intent(this, PlayerActivity.class);
         intent.putExtra(PlayerActivity.EXTRA_URI, entry.getUri().toString());
         intent.putExtra(PlayerActivity.EXTRA_TITLE, entry.getName());
         intent.putExtra(PlayerActivity.EXTRA_DURATION, entry.getDurationMs());
         intent.putExtra(PlayerActivity.EXTRA_RESUME_KEY, entry.stableKey());
+        intent.putExtra(PlayerActivity.EXTRA_START_MS, startMs);
+        intent.putExtra(PlayerActivity.EXTRA_RETENTION_MS, settings.resumeRetentionMs());
+        intent.putExtra(PlayerActivity.EXTRA_SERVER, currentServer == null ? "" : currentServer.getFriendlyName());
+        intent.putExtra(PlayerActivity.EXTRA_FOLDER, selectedFolder == null ? "" : selectedFolder.getName());
+        Uri uri = entry.getUri();
+        intent.putExtra(PlayerActivity.EXTRA_HOST, uri.getHost() == null ? "" : uri.getHost());
+        int index = videos.indexOf(entry);
+        if (index >= 0 && index + 1 < videos.size()) {
+            VideoItem next = videos.get(index + 1);
+            intent.putExtra(PlayerActivity.EXTRA_NEXT_TITLE, next.getName());
+            intent.putExtra(PlayerActivity.EXTRA_NEXT_DURATION, next.getDurationMs());
+        }
+        thumbnailRepository.pause();
         startActivity(intent);
     }
 
-    private void navigateUp() {
-        if (currentServer == null || "0".equals(currentContainerId)) {
-            showExitDialog();
-            return;
-        }
-        String parent = currentParentId == null || currentParentId.isBlank()
-                ? "0"
-                : currentParentId;
-        String parentName = "0".equals(parent)
-                ? "Inicio"
-                : containerNames.get(parent);
-        browseContainer(parent, parentName == null ? "Carpeta" : parentName);
-    }
-
-    private void showLoading(int titleResource, int descriptionResource) {
-        videoGrid.setVisibility(View.GONE);
-        emptyState.setVisibility(View.VISIBLE);
-        emptyTitle.setText(titleResource);
-        emptyDescription.setText(descriptionResource);
-        emptyDescription.setVisibility(View.VISIBLE);
-        libraryProgress.setVisibility(View.VISIBLE);
-        searchButton.setVisibility(View.GONE);
-    }
-
-    private void showNoServers() {
-        currentServer = null;
-        currentContainerId = "0";
-        currentContainerName = "Inicio";
-        currentParentId = null;
-        entries.clear();
-        adapter.submit(entries);
-        videoGrid.setVisibility(View.GONE);
-        emptyState.setVisibility(View.VISIBLE);
-        emptyTitle.setText(R.string.no_servers);
-        emptyDescription.setText(R.string.no_servers_description);
-        emptyDescription.setVisibility(View.VISIBLE);
-        libraryProgress.setVisibility(View.GONE);
-        searchButton.setVisibility(View.VISIBLE);
-        searchButton.requestFocus();
-        updateOptionValues();
-    }
-
-    private void showBrowseError() {
-        videoGrid.setVisibility(View.GONE);
-        emptyState.setVisibility(View.VISIBLE);
-        emptyTitle.setText(R.string.remote_folder_error);
-        emptyDescription.setText(R.string.no_servers_description);
-        emptyDescription.setVisibility(View.VISIBLE);
-        libraryProgress.setVisibility(View.GONE);
-        searchButton.setVisibility(View.VISIBLE);
-        searchButton.requestFocus();
-    }
-
-    private void updateHeader() {
-        // La biblioteca queda deliberadamente limpia; las tarjetas dan el contexto.
-    }
+    // ---------------------------------------------------------------- opciones
 
     private void showOptions() {
-        updateOptionValues();
-        optionsScrim.setVisibility(View.VISIBLE);
-        optionsPanel.setVisibility(View.VISIBLE);
-        serverOption.requestFocus();
+        returnScreen = screen;
+        showScreen(Screen.OPTIONS);
+        View first = optionsScreen.show(0);
+        first.post(first::requestFocus);
+        adapter.refresh();
+        updateThumbnailStats();
     }
 
     private void closeOptions() {
-        if (optionsPanel.getVisibility() != View.VISIBLE) return;
-        optionsPanel.setVisibility(View.GONE);
-        optionsScrim.setVisibility(View.GONE);
-        if (!entries.isEmpty()) focusFirstEntry();
-        else searchButton.requestFocus();
+        if (screen != Screen.OPTIONS) return;
+        Screen back = returnScreen == Screen.OPTIONS ? Screen.LIBRARY : returnScreen;
+        if (back == Screen.SERVERS) {
+            showScreen(Screen.SERVERS);
+        } else if (back == Screen.DETAIL) {
+            showScreen(Screen.DETAIL);
+        } else {
+            showLibrary(false);
+        }
         enterImmersiveMode();
     }
 
-    private boolean focusFirstEntry() {
-        RecyclerView.ViewHolder holder = videoGrid.findViewHolderForAdapterPosition(0);
-        if (holder == null) return videoGrid.requestFocus();
-        return holder.itemView.requestFocus();
-    }
-
-    private void updateOptionValues() {
-        String serverName = currentServer == null
-                ? preferences.getServerName()
-                : currentServer.getFriendlyName();
-        serverValue.setText(serverName == null || serverName.isBlank()
-                ? getString(R.string.select_server)
-                : serverName);
-        folderValue.setText(currentContainerName == null
-                ? preferences.getContainerName()
-                : currentContainerName);
+    private void updateThumbnailStats() {
+        thumbnailCacheExecutor.submit(() -> {
+            long[] stats = thumbnailRepository.cacheStats();
+            mainHandler.post(() -> {
+                if (isFinishing()) return;
+                optionsScreen.setThumbnailStats(stats[0], stats[1]);
+            });
+        });
     }
 
     private void showClearThumbnailsDialog() {
         Dialog dialog = new Dialog(this);
+        clearDialog = dialog;
         dialog.setContentView(R.layout.dialog_clear_thumbnails);
         dialog.setCanceledOnTouchOutside(false);
         Button cancel = dialog.findViewById(R.id.cancel_clear_thumbnails);
@@ -505,113 +1285,50 @@ public final class MainActivity extends Activity {
                 thumbnailRepository.clearAll();
                 mainHandler.post(() -> {
                     if (isFinishing()) return;
-                    adapter.refreshThumbnails();
+                    adapter.refresh();
+                    updateThumbnailStats();
                 });
             });
         });
         dialog.setOnShowListener(ignored -> clear.requestFocus());
         dialog.setOnDismissListener(ignored -> {
+            if (clearDialog == dialog) clearDialog = null;
             if (!isFinishing()) enterImmersiveMode();
         });
         dialog.show();
-        Window window = dialog.getWindow();
-        if (window != null) {
-            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-            WindowManager.LayoutParams attributes = window.getAttributes();
-            attributes.width = WindowManager.LayoutParams.WRAP_CONTENT;
-            attributes.height = WindowManager.LayoutParams.WRAP_CONTENT;
-            attributes.dimAmount = 0.68f;
-            window.setAttributes(attributes);
-        }
+        styleDialog(dialog, 0.68f);
     }
+
+    private void styleDialog(Dialog dialog, float dim) {
+        Window window = dialog.getWindow();
+        if (window == null) return;
+        window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+        WindowManager.LayoutParams attributes = window.getAttributes();
+        attributes.width = WindowManager.LayoutParams.WRAP_CONTENT;
+        attributes.height = WindowManager.LayoutParams.WRAP_CONTENT;
+        attributes.dimAmount = dim;
+        window.setAttributes(attributes);
+    }
+
+    // ---------------------------------------------------------------- teclas y atrás
 
     @Override
     @SuppressLint("GestureBackNavigation")
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (handleOptionsFocus(event)) return true;
         if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
             int keyCode = event.getKeyCode();
             if (keyCode == KeyEvent.KEYCODE_BACK) {
                 handleBackAction();
                 return true;
             }
-            if (optionsPanel.getVisibility() != View.VISIBLE
-                    && (keyCode == KeyEvent.KEYCODE_MENU
-                    || keyCode == KeyEvent.KEYCODE_SETTINGS)) {
-                showOptions();
-                return true;
-            }
-            if (optionsPanel.getVisibility() != View.VISIBLE
-                    && keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-                View focused = getCurrentFocus();
-                RecyclerView.ViewHolder holder = focused == null
-                        ? null
-                        : videoGrid.findContainingViewHolder(focused);
-                if (holder != null
-                        && holder.getBindingAdapterPosition() >= 0
-                        && holder.getBindingAdapterPosition() < 4) {
-                    optionsButton.requestFocus();
-                    return true;
-                }
-            }
-            if (optionsPanel.getVisibility() != View.VISIBLE
-                    && keyCode == KeyEvent.KEYCODE_DPAD_DOWN
-                    && getCurrentFocus() == optionsButton
-                    && !entries.isEmpty()) {
-                focusFirstEntry();
+            if (keyCode == KeyEvent.KEYCODE_MENU || keyCode == KeyEvent.KEYCODE_SETTINGS) {
+                if (screen == Screen.OPTIONS) closeOptions();
+                else showOptions();
                 return true;
             }
         }
         return super.dispatchKeyEvent(event);
-    }
-
-    private boolean handleOptionsFocus(KeyEvent event) {
-        if (optionsPanel.getVisibility() != View.VISIBLE) return false;
-
-        View focused = getCurrentFocus();
-        if (!isInsideOptionsPanel(focused)) {
-            serverOption.requestFocus();
-        }
-
-        int direction = optionsDirection(event.getKeyCode());
-        if (direction == 0) return false;
-        if (event.getAction() != KeyEvent.ACTION_DOWN) return true;
-
-        View current = optionsPanel.findFocus();
-        if (!isInsideOptionsPanel(current)) {
-            serverOption.requestFocus();
-            return true;
-        }
-        View next = current.focusSearch(direction);
-        if (isInsideOptionsPanel(next)) next.requestFocus();
-        return true;
-    }
-
-    private boolean isInsideOptionsPanel(View candidate) {
-        View current = candidate;
-        while (current != null) {
-            if (current == optionsPanel) return true;
-            ViewParent parent = current.getParent();
-            if (!(parent instanceof View)) return false;
-            current = (View) parent;
-        }
-        return false;
-    }
-
-    private static int optionsDirection(int keyCode) {
-        switch (keyCode) {
-            case KeyEvent.KEYCODE_DPAD_UP:
-                return View.FOCUS_UP;
-            case KeyEvent.KEYCODE_DPAD_DOWN:
-                return View.FOCUS_DOWN;
-            case KeyEvent.KEYCODE_DPAD_LEFT:
-                return View.FOCUS_LEFT;
-            case KeyEvent.KEYCODE_DPAD_RIGHT:
-                return View.FOCUS_RIGHT;
-            default:
-                return 0;
-        }
     }
 
     private void registerBackCallback() {
@@ -624,12 +1341,27 @@ public final class MainActivity extends Activity {
     }
 
     private void handleBackAction() {
-        if (optionsPanel.getVisibility() == View.VISIBLE) {
-            closeOptions();
-        } else if (serverDialog != null && serverDialog.isShowing()) {
-            serverDialog.dismiss();
-        } else {
-            navigateUp();
+        if (exitDialog != null && exitDialog.isShowing()) return;
+        if (clearDialog != null && clearDialog.isShowing()) return;
+        switch (screen) {
+            case OPTIONS:
+                closeOptions();
+                break;
+            case DETAIL:
+                showLibrary(false);
+                break;
+            case SERVERS:
+                if (currentServer != null && !library.getServerUdn().isBlank()) {
+                    showScreen(Screen.LIBRARY);
+                    renderGrid();
+                } else {
+                    showExitDialog();
+                }
+                break;
+            default:
+                if (!levels.isRoot()) popLevel();
+                else showExitDialog();
+                break;
         }
     }
 
@@ -651,17 +1383,8 @@ public final class MainActivity extends Activity {
             if (exitDialog == dialog) exitDialog = null;
             if (!isFinishing()) enterImmersiveMode();
         });
-        Window window = dialog.getWindow();
-        if (window != null) {
-            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-            WindowManager.LayoutParams attributes = window.getAttributes();
-            attributes.width = WindowManager.LayoutParams.WRAP_CONTENT;
-            attributes.height = WindowManager.LayoutParams.WRAP_CONTENT;
-            attributes.dimAmount = 0.68f;
-            window.setAttributes(attributes);
-        }
         dialog.show();
+        styleDialog(dialog, 0.68f);
     }
 
     @Override
@@ -674,7 +1397,9 @@ public final class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         thumbnailRepository.resume();
-        adapter.refreshThumbnails();
+        resumeStore = new PlaybackResumeStore(this, settings.resumeRetentionMs());
+        adapter.setResume(resumeStore);
+        adapter.refresh();
         if (appUpdater != null) appUpdater.onHostResume();
         enterImmersiveMode();
     }
@@ -713,8 +1438,8 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
+    private boolean isDebuggable() {
+        return (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
     }
 
     @Override
@@ -722,8 +1447,8 @@ public final class MainActivity extends Activity {
         discoveryGeneration++;
         browseGeneration++;
         mainHandler.removeCallbacksAndMessages(null);
-        if (serverDialog != null) serverDialog.dismiss();
         if (exitDialog != null) exitDialog.dismiss();
+        if (clearDialog != null) clearDialog.dismiss();
         if (appUpdater != null) appUpdater.destroy();
         thumbnailRepository.destroy();
         discovery.close();
