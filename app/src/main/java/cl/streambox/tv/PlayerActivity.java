@@ -11,6 +11,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.util.Log;
 import android.util.TypedValue;
 import android.view.KeyEvent;
 import android.view.View;
@@ -34,6 +35,7 @@ import androidx.media3.common.Tracks;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.datasource.HttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.ui.PlayerView;
@@ -72,6 +74,7 @@ public final class PlayerActivity extends Activity {
     /** Resultado: true si el video llegó al final (y no se cerró a mano). */
     static final String EXTRA_RESULT_ENDED = "video_result_ended";
 
+    private static final String TAG = "VibeDlnaPlayer";
     /** Mismo ocultado automático que el OSD de VibeM3U (OVERLAY_TIMEOUT_MS). */
     private static final long OVERLAY_TIMEOUT_MS = 4_500L;
     private static final long SEEK_STEP_MS = 10_000L;
@@ -201,6 +204,18 @@ public final class PlayerActivity extends Activity {
         showOverlay();
     }
 
+    /** Código HTTP de la causa del error, o -1 si no hubo respuesta HTTP. */
+    private static int httpStatusOf(Throwable error) {
+        Throwable cause = error;
+        for (int depth = 0; cause != null && depth < 8; depth++) {
+            if (cause instanceof HttpDataSource.InvalidResponseCodeException) {
+                return ((HttpDataSource.InvalidResponseCodeException) cause).responseCode;
+            }
+            cause = cause.getCause();
+        }
+        return -1;
+    }
+
     private String textExtra(String name) {
         String value = getIntent().getStringExtra(name);
         return value == null ? "" : value;
@@ -244,7 +259,10 @@ public final class PlayerActivity extends Activity {
 
             @Override
             public void onPlayerError(PlaybackException error) {
-                eyebrow.setText(error.getErrorCodeName());
+                // El código técnico va al log; en pantalla, un mensaje para quien mira la TV.
+                Log.w(TAG, "Error de reproducción: " + error.getErrorCodeName(), error);
+                eyebrow.setText(PlaybackUiFormatter.playbackErrorMessage(
+                        error.getErrorCodeName(), httpStatusOf(error)));
                 showOverlay();
             }
         });

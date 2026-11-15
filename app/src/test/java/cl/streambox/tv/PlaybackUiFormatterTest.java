@@ -66,6 +66,50 @@ public final class PlaybackUiFormatterTest {
     }
 
     @Test
+    public void networkAndHttpErrorsSayTheConnectionFailed() {
+        String connection = "No se pudo conectar con el PC";
+        assertEquals(connection, PlaybackUiFormatter.playbackErrorMessage(
+                "ERROR_CODE_IO_NETWORK_CONNECTION_FAILED", -1));
+        assertEquals(connection, PlaybackUiFormatter.playbackErrorMessage(
+                "ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT", -1));
+        assertEquals(connection, PlaybackUiFormatter.playbackErrorMessage(
+                "ERROR_CODE_IO_BAD_HTTP_STATUS", 500));
+    }
+
+    @Test
+    public void missingFileSaysTheFileIsGone() {
+        String gone = "El archivo ya no está en el PC";
+        assertEquals(gone, PlaybackUiFormatter.playbackErrorMessage(
+                "ERROR_CODE_IO_FILE_NOT_FOUND", -1));
+        assertEquals(gone, PlaybackUiFormatter.playbackErrorMessage(
+                "ERROR_CODE_IO_BAD_HTTP_STATUS", 404));
+    }
+
+    @Test
+    public void parsingErrorsSayTheFileIsDamaged() {
+        assertEquals("Este archivo está dañado o incompleto",
+                PlaybackUiFormatter.playbackErrorMessage(
+                        "ERROR_CODE_PARSING_CONTAINER_MALFORMED", -1));
+    }
+
+    @Test
+    public void decoderErrorsSayTheFormatIsNotSupported() {
+        String format = "La TV no puede reproducir este formato";
+        assertEquals(format, PlaybackUiFormatter.playbackErrorMessage(
+                "ERROR_CODE_DECODER_INIT_FAILED", -1));
+        assertEquals(format, PlaybackUiFormatter.playbackErrorMessage(
+                "ERROR_CODE_DECODING_FORMAT_UNSUPPORTED", -1));
+    }
+
+    @Test
+    public void anyOtherErrorGetsTheGenericMessage() {
+        String generic = "No se pudo reproducir este video";
+        assertEquals(generic, PlaybackUiFormatter.playbackErrorMessage(
+                "ERROR_CODE_UNSPECIFIED", -1));
+        assertEquals(generic, PlaybackUiFormatter.playbackErrorMessage(null, -1));
+    }
+
+    @Test
     public void audioTrackLabelJoinsLanguageCodecAndChannels() {
         assertEquals("Original · AAC · Estéreo",
                 PlaybackUiFormatter.audioTrackLabel("und", "AAC", 2));

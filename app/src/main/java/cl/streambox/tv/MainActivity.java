@@ -1240,8 +1240,11 @@ public final class MainActivity extends Activity {
         String folder = selectedFolder == null ? "" : selectedFolder.getName();
         String order = OptionsScreen.sortLabel(settings.sortOrder()).toUpperCase(Locale.ROOT);
         int count = videos.size();
-        gridLabel.setText(folder.toUpperCase(Locale.ROOT) + " · " + count
-                + (count == 1 ? " VIDEO" : " VIDEOS") + " · " + order);
+        // Sin nombre de carpeta, ese tramo se omite (no queda un «·» suelto al inicio).
+        gridLabel.setText(DlnaMediaFormat.join(java.util.Arrays.asList(
+                folder.trim().toUpperCase(Locale.ROOT),
+                count + (count == 1 ? " VIDEO" : " VIDEOS"),
+                order), " · "));
         submitGrid(videos);
         if (videos.isEmpty()) {
             if (selectedFolder != null) {

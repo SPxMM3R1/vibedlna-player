@@ -61,6 +61,28 @@ final class PlaybackUiFormatter {
         return DlnaMediaFormat.join(parts, " · ");
     }
 
+    /**
+     * Mensaje de error para quien mira la TV. {@code errorCodeName} es el código técnico de Media3
+     * (el log lo conserva); {@code httpStatus} es la respuesta HTTP si la hubo, o -1.
+     */
+    static String playbackErrorMessage(String errorCodeName, int httpStatus) {
+        String code = errorCodeName == null ? "" : errorCodeName.replace("ERROR_CODE_", "");
+        if (httpStatus == 404 || "IO_FILE_NOT_FOUND".equals(code)) {
+            return "El archivo ya no está en el PC";
+        }
+        if (code.startsWith("IO_") || code.startsWith("NETWORK_CONNECTION_")
+                || "BAD_HTTP_STATUS".equals(code)) {
+            return "No se pudo conectar con el PC";
+        }
+        if (code.startsWith("PARSING_")) {
+            return "Este archivo está dañado o incompleto";
+        }
+        if (code.startsWith("DECODER_") || code.startsWith("DECODING_")) {
+            return "La TV no puede reproducir este formato";
+        }
+        return "No se pudo reproducir este video";
+    }
+
     static String friendlyCodec(String mimeType, String codecs) {
         String source = ((mimeType == null ? "" : mimeType)
                 + " "
