@@ -2,6 +2,7 @@ package cl.streambox.tv;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.Intent;
 import android.content.res.Configuration;
 import android.graphics.Typeface;
 import android.net.Uri;
@@ -10,11 +11,12 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
-import android.view.Gravity;
+import android.util.TypedValue;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.window.OnBackInvokedDispatcher;
@@ -47,6 +49,9 @@ import java.util.concurrent.Executors;
 /**
  * Reproductor (diseño v1, pantalla 4): OSD con ruta, título, barra cian, «siguiente en
  * la carpeta» y línea técnica real; ▲ abre audio y subtítulos con las pistas de Media3.
+ *
+ * <p>Al terminar el video devuelve {@link #EXTRA_RESULT_ENDED} a la biblioteca, que decide si
+ * sigue con el siguiente de la carpeta o vuelve a mostrar la biblioteca con el foco en este video.
  */
 @OptIn(markerClass = UnstableApi.class)
 public final class PlayerActivity extends Activity {
@@ -62,18 +67,24 @@ public final class PlayerActivity extends Activity {
     static final String EXTRA_HOST = "video_host";
     static final String EXTRA_NEXT_TITLE = "video_next_title";
     static final String EXTRA_NEXT_DURATION = "video_next_duration";
+    /** Resultado: clave de reanudado del video que se estaba viendo. */
+    static final String EXTRA_RESULT_KEY = "video_result_key";
+    /** Resultado: true si el video llegó al final (y no se cerró a mano). */
+    static final String EXTRA_RESULT_ENDED = "video_result_ended";
 
+    /** Mismo ocultado automático que el OSD de VibeM3U (OVERLAY_TIMEOUT_MS). */
     private static final long OVERLAY_TIMEOUT_MS = 4_500L;
     private static final long SEEK_STEP_MS = 10_000L;
     private static final long SEEK_FAST_STEP_MS = 30_000L;
     private static final long RESUME_SAVE_INTERVAL_MS = 10_000L;
-    private static final int KNOB_TRAVEL_DP = 520;
+    private static final int KNOB_TRAVEL_DP = 300;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService resumeExecutor = Executors.newSingleThreadExecutor();
 
     private PlayerView playerView;
-    private View osd;
+    private FrameLayout overlay;
+    private LinearLayout osd;
     private TextView eyebrow;
     private TextView title;
     private View barTrack;
@@ -85,6 +96,7 @@ public final class PlayerActivity extends Activity {
     private TextView clock;
     private TextView date;
     private TextView tech;
+    private TextView techSeparator;
     private TextView from;
     private LinearLayout trackPanel;
     private LinearLayout trackColumns;
@@ -100,6 +112,7 @@ public final class PlayerActivity extends Activity {
     private String nextTitle = "";
     private long nextDurationMs;
     private long lastBackActionMs = -1_000L;
+    private boolean finishing;
 
     private boolean trackPanelOpen;
     private int trackGroup;
@@ -118,15 +131,16 @@ public final class PlayerActivity extends Activity {
         @Override
         public void run() {
             updatePlaybackUi();
-            if (osd.getVisibility() == View.VISIBLE) {
+            if (overlay.getVisibility() == View.VISIBLE) {
                 mainHandler.postDelayed(this, 500L);
             }
         }
     };
 
+    /** Oculta todo el OSD junto: degradado, reloj, línea técnica y título. Con ▲ abierto, no. */
     private final Runnable hideOverlay = () -> {
         if (trackPanelOpen) return;
-        osd.setVisibility(View.GONE);
+        overlay.setVisibility(View.GONE);
         mainHandler.removeCallbacks(updateProgress);
     };
 
@@ -135,6 +149,7 @@ public final class PlayerActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_player);
         playerView = findViewById(R.id.player_view);
+        overlay = findViewById(R.id.player_overlay);
         osd = findViewById(R.id.player_osd);
         eyebrow = findViewById(R.id.player_eyebrow);
         title = findViewById(R.id.player_title);
@@ -147,6 +162,7 @@ public final class PlayerActivity extends Activity {
         clock = findViewById(R.id.player_clock);
         date = findViewById(R.id.player_date);
         tech = findViewById(R.id.player_tech);
+        techSeparator = findViewById(R.id.player_tech_sep);
         from = findViewById(R.id.player_from);
         trackPanel = findViewById(R.id.player_tracks);
         trackColumns = findViewById(R.id.player_track_columns);
@@ -173,11 +189,16 @@ public final class PlayerActivity extends Activity {
         eyebrow.setText(DlnaMediaFormat.join(java.util.Arrays.asList(server, folder), " · ")
                 .toUpperCase(Locale.ROOT));
         from.setText("desde " + DlnaMediaFormat.join(java.util.Arrays.asList(server, host), " · "));
-        next.setText(nextTitle.isEmpty() ? "—"
-                : nextTitle + " · " + DlnaMediaFormat.duration(nextDurationMs));
+        // Sin siguiente video la línea «Después» no se muestra: ni texto ni espacio.
+        if (nextTitle.isEmpty()) {
+            next.setVisibility(View.GONE);
+        } else {
+            next.setText(nextTitle + " · " + DlnaMediaFormat.duration(nextDurationMs));
+            next.setVisibility(View.VISIBLE);
+        }
         help.setText("◀ ▶ 10 s · ▲ audio y subtítulos · OK pausa");
         createPlayer(Uri.parse(uriValue));
-        showOverlay(false);
+        showOverlay();
     }
 
     private String textExtra(String name) {
@@ -199,12 +220,15 @@ public final class PlayerActivity extends Activity {
             @Override
             public void onPlaybackStateChanged(int playbackState) {
                 if (playbackState == Player.STATE_READY) updatePlaybackUi();
-                if (playbackState == Player.STATE_ENDED) savePlaybackPosition();
+                // Al terminar no queda en «en pausa»: se devuelve el resultado y la biblioteca decide.
+                if (playbackState == Player.STATE_ENDED) mainHandler.post(() -> finishWithResult(true));
             }
 
             @Override
             public void onIsPlayingChanged(boolean isPlaying) {
                 updatePlaybackUi();
+                // Reproduciendo, el OSD se oculta a su tiempo; en pausa se queda.
+                if (overlay.getVisibility() == View.VISIBLE) scheduleAutoHide();
             }
 
             @Override
@@ -221,7 +245,7 @@ public final class PlayerActivity extends Activity {
             @Override
             public void onPlayerError(PlaybackException error) {
                 eyebrow.setText(error.getErrorCodeName());
-                showOverlay(true);
+                showOverlay();
             }
         });
         player.setMediaItem(MediaItem.fromUri(uri));
@@ -267,6 +291,8 @@ public final class PlayerActivity extends Activity {
             if (!audioText.trim().isEmpty()) parts.add(audioText.trim());
         }
         tech.setText(DlnaMediaFormat.join(parts, " · "));
+        // El separador entre la técnica y «desde…» solo existe si hay técnica.
+        techSeparator.setVisibility(parts.isEmpty() ? View.GONE : View.VISIBLE);
     }
 
     /** 1.0, 2.0, 5.1 o 7.1 según los canales de Media3. */
@@ -285,12 +311,20 @@ public final class PlayerActivity extends Activity {
         }
     }
 
-    private void showOverlay(boolean keepVisible) {
-        osd.setVisibility(View.VISIBLE);
-        mainHandler.removeCallbacks(hideOverlay);
+    /** Muestra el OSD completo y, si el video suena, lo programa para ocultarse. */
+    private void showOverlay() {
+        overlay.setVisibility(View.VISIBLE);
         mainHandler.removeCallbacks(updateProgress);
         updateProgress.run();
-        if (!keepVisible && !trackPanelOpen) mainHandler.postDelayed(hideOverlay, OVERLAY_TIMEOUT_MS);
+        scheduleAutoHide();
+    }
+
+    /** Oculta a los 4,5 s solo mientras el video se reproduce; en pausa el OSD se queda. */
+    private void scheduleAutoHide() {
+        mainHandler.removeCallbacks(hideOverlay);
+        if (player != null && player.isPlaying() && !trackPanelOpen) {
+            mainHandler.postDelayed(hideOverlay, OVERLAY_TIMEOUT_MS);
+        }
     }
 
     private long playbackDuration() {
@@ -324,7 +358,16 @@ public final class PlayerActivity extends Activity {
 
     private int dpWidth(View view) {
         int width = view.getWidth();
-        return width > 0 ? width : TvUi.dp(this, KNOB_TRAVEL_DP);
+        return width > 0 ? width : px(KNOB_TRAVEL_DP);
+    }
+
+    /** Medida en dp del OSD, sin el factor de escala de las pantallas de la biblioteca. */
+    private int px(float dp) {
+        return Math.round(TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP,
+                dp,
+                getResources().getDisplayMetrics()
+        ));
     }
 
     private void seekBy(long deltaMs) {
@@ -335,7 +378,7 @@ public final class PlayerActivity extends Activity {
                 playbackDuration()
         );
         player.seekTo(target);
-        showOverlay(false);
+        showOverlay();
     }
 
     // ---------------------------------------------------------------- audio y subtítulos
@@ -344,15 +387,14 @@ public final class PlayerActivity extends Activity {
         if (player == null) return;
         trackPanelOpen = true;
         trackPanel.setVisibility(View.VISIBLE);
-        osd.setVisibility(View.VISIBLE);
-        mainHandler.removeCallbacks(hideOverlay);
         rebuildTracks();
+        showOverlay();
     }
 
     private void closeTracks() {
         trackPanelOpen = false;
         trackPanel.setVisibility(View.GONE);
-        showOverlay(false);
+        showOverlay();
     }
 
     private void rebuildTracks() {
@@ -385,29 +427,40 @@ public final class PlayerActivity extends Activity {
         LinearLayout column = new LinearLayout(this);
         column.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                TvUi.dp(this, 360),
+                px(240),
                 LinearLayout.LayoutParams.WRAP_CONTENT
         );
-        params.rightMargin = TvUi.dp(this, 60);
+        params.rightMargin = px(24);
         column.setLayoutParams(params);
-        TextView head = TvUi.text(this, label, 11f, TvUi.INK_3, false);
+        TextView head = plainText(label, 7.5f, TvUi.INK_3);
         head.setLetterSpacing(0.2f);
+        head.setTypeface(Typeface.DEFAULT_BOLD);
         head.setTag("head" + group);
         column.addView(head);
         for (int i = 0; i < items.size(); i++) {
             TrackChoice choice = items.get(i);
-            TextView row = TvUi.text(this, choice.label, 15f, TvUi.INK_2, false);
+            TextView row = plainText(choice.label, 10f, TvUi.INK_2);
             row.setTag(group + ":" + i);
             LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
             );
-            rowParams.topMargin = TvUi.dp(this, 10);
+            rowParams.topMargin = px(6);
             row.setLayoutParams(rowParams);
             if (choice.selected) row.setText("●  " + choice.label);
             column.addView(row);
         }
         return column;
+    }
+
+    private TextView plainText(String value, float sp, int color) {
+        TextView view = new TextView(this);
+        view.setText(value);
+        view.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        view.setTextColor(color);
+        view.setIncludeFontPadding(false);
+        view.setSingleLine(true);
+        return view;
     }
 
     /** Resalta la fila con foco de cada columna: blanco en negrita y línea. */
@@ -517,31 +570,31 @@ public final class PlayerActivity extends Activity {
                     if (player.isPlaying()) player.pause();
                     else player.play();
                     savePlaybackPosition();
-                    // En pausa el OSD se queda para mostrar «en pausa».
-                    showOverlay(!player.isPlaying());
+                    // En pausa el OSD se queda para mostrar «en pausa»; al reproducir se oculta.
+                    showOverlay();
                 }
                 return true;
             }
             if (keyCode == KeyEvent.KEYCODE_INFO) {
-                showOverlay(false);
+                showOverlay();
                 return true;
             }
             if (keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE && player != null) {
                 player.pause();
                 savePlaybackPosition();
-                showOverlay(true);
+                showOverlay();
                 return true;
             }
             if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY && player != null) {
                 player.play();
-                showOverlay(false);
+                showOverlay();
                 return true;
             }
             if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE && player != null) {
                 if (player.isPlaying()) player.pause();
                 else player.play();
                 savePlaybackPosition();
-                showOverlay(false);
+                showOverlay();
                 return true;
             }
         }
@@ -557,7 +610,10 @@ public final class PlayerActivity extends Activity {
         }
     }
 
-    /** Atrás: cierra el panel; si no, oculta el OSD; y otra vez cierra el video. */
+    /**
+     * Atrás: cierra el panel de pistas; si el OSD está a la vista, lo oculta; y otra vez cierra
+     * el video. Igual que VibeM3U: el primer Atrás oculta y el segundo sale.
+     */
     private void handleBackAction() {
         long now = SystemClock.uptimeMillis();
         if (now - lastBackActionMs < 250L) return;
@@ -566,11 +622,25 @@ public final class PlayerActivity extends Activity {
             closeTracks();
             return;
         }
-        if (osd.getVisibility() == View.VISIBLE) {
+        if (overlay.getVisibility() == View.VISIBLE) {
             hideOverlay.run();
             return;
         }
+        finishWithResult(false);
+    }
+
+    /**
+     * Cierra el reproductor y devuelve a la biblioteca si el video terminó ({@code ended}) o si
+     * se cerró a mano. La biblioteca lee la clave del video para decidir qué sigue.
+     */
+    private void finishWithResult(boolean ended) {
+        if (finishing) return;
+        finishing = true;
         savePlaybackPosition();
+        Intent result = new Intent()
+                .putExtra(EXTRA_RESULT_KEY, resumeKey == null ? "" : resumeKey)
+                .putExtra(EXTRA_RESULT_ENDED, ended);
+        setResult(RESULT_OK, result);
         releasePlayer();
         finish();
     }
@@ -677,16 +747,20 @@ public final class PlayerActivity extends Activity {
         }
 
         static TrackChoice track(Tracks.Group group, int index, Format format, boolean selected) {
-            String language = format.language == null || format.language.isEmpty()
-                    ? "Pista " + (index + 1)
-                    : format.language;
             String codec = PlaybackUiFormatter.friendlyCodec(format.sampleMimeType, format.codecs);
-            String channels = group.getType() == C.TRACK_TYPE_AUDIO ? channelsLabel(format.channelCount) : "";
-            String text = DlnaMediaFormat.join(java.util.Arrays.asList(
-                    language,
-                    "—".equals(codec) ? "" : codec,
-                    channels
-            ), " · ");
+            String text;
+            if (group.getType() == C.TRACK_TYPE_AUDIO) {
+                text = PlaybackUiFormatter.audioTrackLabel(format.language, codec, format.channelCount);
+            } else {
+                String language = format.language == null || format.language.isEmpty()
+                        || "und".equalsIgnoreCase(format.language)
+                        ? "Pista " + (index + 1)
+                        : format.language;
+                text = DlnaMediaFormat.join(java.util.Arrays.asList(
+                        language,
+                        "—".equals(codec) ? "" : codec
+                ), " · ");
+            }
             return new TrackChoice(text, group, index, selected, false);
         }
     }

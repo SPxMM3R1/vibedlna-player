@@ -70,4 +70,39 @@ final class BrowseStack {
     List<Level> path() {
         return Collections.unmodifiableList(new ArrayList<>(levels));
     }
+
+    private static final char FIELD_SEPARATOR = '\u001F';
+    private static final char LEVEL_SEPARATOR = '\u001E';
+
+    /**
+     * Texto para guardar una ruta: «id» y «nombre» de cada nivel, separados por caracteres de
+     * control que no aparecen en los nombres de las carpetas.
+     */
+    static String encode(List<Level> path) {
+        StringBuilder text = new StringBuilder();
+        for (Level level : path) {
+            if (text.length() > 0) text.append(LEVEL_SEPARATOR);
+            text.append(clean(level.id)).append(FIELD_SEPARATOR).append(clean(level.name));
+        }
+        return text.toString();
+    }
+
+    /** Niveles de un texto guardado por {@link #encode}; lo que no se entiende se omite. */
+    static List<Level> decode(String text) {
+        List<Level> path = new ArrayList<>();
+        if (text == null || text.isEmpty()) return path;
+        for (String record : text.split(String.valueOf(LEVEL_SEPARATOR))) {
+            int split = record.indexOf(FIELD_SEPARATOR);
+            if (split <= 0) continue;
+            String id = record.substring(0, split);
+            if (id.isBlank()) continue;
+            path.add(new Level(id, record.substring(split + 1)));
+        }
+        return path;
+    }
+
+    private static String clean(String value) {
+        if (value == null) return "";
+        return value.replace(FIELD_SEPARATOR, ' ').replace(LEVEL_SEPARATOR, ' ');
+    }
 }

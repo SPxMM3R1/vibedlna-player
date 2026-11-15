@@ -202,7 +202,7 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
             holder.none.setVisibility(bitmap == null ? View.VISIBLE : View.GONE);
         });
 
-        holder.itemView.setOnClickListener(view -> listener.onTileSelected(entry));
+        TvUi.clickable(holder.itemView, () -> listener.onTileSelected(entry));
         holder.itemView.setOnFocusChangeListener((view, focused) -> {
             holder.name.setTextColor(focused ? TvUi.WHITE : TvUi.INK_2);
             holder.name.setTypeface(null, focused ? Typeface.BOLD : Typeface.NORMAL);

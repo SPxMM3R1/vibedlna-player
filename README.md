@@ -28,7 +28,10 @@ Biblioteca:
 - Izquierda/derecha y arriba/abajo: recorrer la columna de carpetas y la
   grilla de videos.
 - `OK` en una carpeta: mostrar sus videos; si tiene subcarpetas, la columna
-  pasa a mostrarlas y aparece `‹` para subir un nivel.
+  pasa a mostrarlas, con la carpeta abierta arriba, y aparece `‹` para subir un
+  nivel. La biblioteca recuerda la ruta completa y la vuelve a abrir al entrar.
+- Si el servidor no entrega todo el contenido tras reintentar, la grilla lo
+  muestra con el aviso «No se pudo leer todo: faltan algunos elementos».
 - `OK` en un video: si tiene avance guardado, abre Detalle (reanudar o desde
   el inicio); si no, reproduce desde el inicio.
 - `Atrás`: subir un nivel de carpetas o confirmar la salida en la raíz.
@@ -44,6 +47,9 @@ Reproductor:
 - Arriba (`▲`): elegir audio y subtítulos. Izquierda/derecha cambian de
   grupo, arriba/abajo de pista, `OK` elige y `Atrás` cierra.
 - `Atrás`: ocultar primero la interfaz y, al pulsarlo otra vez, cerrar el video.
+- La interfaz se oculta sola a los 4,5 s mientras el video se reproduce; en
+  pausa se queda. Al terminar, pasa al siguiente video de la carpeta; si no hay
+  otro, vuelve a la biblioteca con el foco en ese video.
 
 Opciones (`Menú` o `Configuración`, en cualquier pantalla):
 

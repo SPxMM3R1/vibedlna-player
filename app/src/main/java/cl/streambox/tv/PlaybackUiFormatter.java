@@ -28,6 +28,39 @@ final class PlaybackUiFormatter {
         return "Terminar\u00e1 a las " + value;
     }
 
+    /** Idioma de una pista de audio: «und» o vacío significa «Original». */
+    static String audioLanguage(String language) {
+        if (language == null) return "Original";
+        String value = language.trim();
+        if (value.isEmpty() || "und".equalsIgnoreCase(value)) return "Original";
+        return value;
+    }
+
+    /** Canales de una pista de audio: 1 = Mono, 2 = Estéreo, 6 = 5.1, 8 = 7.1, el resto «N ch». */
+    static String audioChannels(int channels) {
+        switch (channels) {
+            case 1:
+                return "Mono";
+            case 2:
+                return "Estéreo";
+            case 6:
+                return "5.1";
+            case 8:
+                return "7.1";
+            default:
+                return channels > 0 ? channels + " ch" : "";
+        }
+    }
+
+    /** «Original · AAC · Estéreo»: lo que muestra el panel ▲ para una pista de audio. */
+    static String audioTrackLabel(String language, String codec, int channels) {
+        java.util.List<String> parts = new java.util.ArrayList<>();
+        parts.add(audioLanguage(language));
+        parts.add("—".equals(codec) ? "" : codec);
+        parts.add(audioChannels(channels));
+        return DlnaMediaFormat.join(parts, " · ");
+    }
+
     static String friendlyCodec(String mimeType, String codecs) {
         String source = ((mimeType == null ? "" : mimeType)
                 + " "

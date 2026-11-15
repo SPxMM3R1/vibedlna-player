@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Margen lateral del OSD del reproductor: el mismo de VibeM3U (osd_modern.xml). -->
+    <dimen name="channel_overlay_horizontal_margin">32dp</dimen>
+</resources>

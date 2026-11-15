@@ -58,6 +58,8 @@ public final class MainActivity extends Activity {
     private static final String UP_ROW_ID = "__arriba__";
     private static final long CLOCK_TICK_MS = 15_000L;
     private static final long SEARCH_RETRY_MS = 15_000L;
+    private static final int REQUEST_PLAYER = 41;
+    private static final String INCOMPLETE_NOTICE = "No se pudo leer todo: faltan algunos elementos";
 
     private enum Screen { SERVERS, LIBRARY, DETAIL, OPTIONS }
 
@@ -86,6 +88,10 @@ public final class MainActivity extends Activity {
 
     private DlnaServer currentServer;
     private VideoItem selectedFolder;
+    /** Clave del video que se reproduce; al volver del reproductor, la biblioteca lo busca. */
+    private String playingKey = "";
+    /** Tarjeta que debe recuperar el foco al volver a la biblioteca (null si no hace falta). */
+    private String pendingFocusKey;
     private VideoItem detailEntry;
     private PlaybackResumeStore.ResumePoint detailPoint;
     private Screen screen = Screen.SERVERS;
@@ -120,6 +126,7 @@ public final class MainActivity extends Activity {
     private TextView heroMeta;
     private TextView gridLabel;
     private TextView gridMessage;
+    private TextView libraryNotice;
     private RecyclerView grid;
     private TextView detailCrumbs;
     private TextView detailEyebrow;
@@ -263,6 +270,12 @@ public final class MainActivity extends Activity {
         ));
         focusLine.bringToFront();
         focusRing.bringToFront();
+        // Un solo foco a la vez: el marco de la tarjeta se va al salir de la grilla.
+        root.getViewTreeObserver().addOnGlobalFocusChangeListener((oldFocus, newFocus) -> {
+            if (newFocus == null || grid == null || grid.findContainingViewHolder(newFocus) == null) {
+                TvUi.hide(focusRing);
+            }
+        });
     }
 
     private FrameLayout screen() {
@@ -409,10 +422,17 @@ public final class MainActivity extends Activity {
         gridMessage = TvUi.text(this, "", 13f, TvUi.INK_3, false);
         place(screenLibrary, gridMessage, 420, 340);
 
+        libraryNotice = TvUi.text(this, INCOMPLETE_NOTICE, 11f, TvUi.INK_3, false);
+        libraryNotice.setVisibility(View.GONE);
+        place(screenLibrary, libraryNotice, 420, 262);
+
         grid = new RecyclerView(this);
-        grid.setLayoutManager(new GridLayoutManager(this, 3));
-        grid.setClipToPadding(false);
-        grid.setClipChildren(false);
+        grid.setLayoutManager(new RowGridLayoutManager(this, 3));
+        // La grilla recorta en sus bordes (los títulos de una fila que sale no quedan sobre el
+        // encabezado) y deja un margen abajo: la tarjeta con foco, ya crecida, queda entera.
+        grid.setClipToPadding(true);
+        grid.setClipChildren(true);
+        grid.setPadding(0, 0, 0, TvUi.dp(this, 24));
         grid.setItemAnimator(null);
         grid.setAdapter(adapter);
         grid.addItemDecoration(new RecyclerView.ItemDecoration() {
@@ -514,9 +534,9 @@ public final class MainActivity extends Activity {
         detailResume = actionText(actions, "Reanudar", 34);
         detailFromStart = actionText(actions, "Desde el inicio", 34);
         detailBack = actionText(actions, "Volver a la carpeta", 0);
-        detailResume.setOnClickListener(view -> startPlayer(detailEntry, detailStart()));
-        detailFromStart.setOnClickListener(view -> startPlayer(detailEntry, 0L));
-        detailBack.setOnClickListener(view -> showLibrary(true));
+        TvUi.clickable(detailResume, () -> startPlayer(detailEntry, detailStart()));
+        TvUi.clickable(detailFromStart, () -> startPlayer(detailEntry, 0L));
+        TvUi.clickable(detailBack, () -> showLibrary(true));
 
         detailFile = TvUi.text(this, "", 12f, TvUi.INK_3, false);
         detailFile.setTypeface(Typeface.MONOSPACE);
@@ -602,7 +622,7 @@ public final class MainActivity extends Activity {
             public void onCheckUpdatesRequested() {
                 appUpdater.checkForUpdates();
             }
-        }, "0.4.0", tabs, rows);
+        }, "0.4.2", tabs, rows);
     }
 
     // ---------------------------------------------------------------- utilidades de vista
@@ -800,7 +820,7 @@ public final class MainActivity extends Activity {
                     TvUi.dp(this, 7),
                     TvUi.dp(this, 7)
             );
-            dotParams.leftMargin = TvUi.dp(this, 10);
+            dotParams.leftMargin = TvUi.dp(this, 8);
             nameLine.addView(dot, dotParams);
         }
         row.addView(nameLine);
@@ -810,13 +830,25 @@ public final class MainActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
         );
-        subParams.topMargin = TvUi.dp(this, 6);
+        // Línea de foco a 4 dp bajo el nombre (2 dp de grosor) y 4 dp de aire antes de este texto.
+        subParams.topMargin = TvUi.dp(this, 10);
         row.addView(sub, subParams);
 
-        row.setOnClickListener(view -> onSelect.run());
+        TvUi.clickable(row, onSelect);
         row.setOnFocusChangeListener((view, focused) -> {
-            TvUi.setFocusedText(nameView, focused && online);
-            if (focused) TvUi.underline(focusLine, nameView, root, this);
+            boolean lit = focused && online;
+            nameView.setTextColor(lit ? TvUi.WHITE : (online ? TvUi.INK_2 : TvUi.INK_4));
+            nameView.setTypeface(null, lit ? Typeface.BOLD : Typeface.NORMAL);
+            // El nombre y su punto crecen juntos desde la izquierda: el punto nunca pisa el texto.
+            nameLine.setPivotX(0f);
+            nameLine.animate()
+                    .scaleX(lit ? 1.07f : 1f)
+                    .scaleY(lit ? 1.07f : 1f)
+                    .setDuration(350L)
+                    .setInterpolator(TvUi.SPRING)
+                    .start();
+            // La línea mide el ancho final del nombre (crecido, si tiene foco).
+            if (focused) TvUi.underline(focusLine, nameView, root, this, 4, lit ? 1.07f : 1f);
             else if (online) TvUi.hide(focusLine);
         });
         return row;
@@ -837,6 +869,8 @@ public final class MainActivity extends Activity {
         showScreen(Screen.LIBRARY);
         gridMessage.setText("Cargando carpeta remota…");
         gridMessage.setVisibility(View.VISIBLE);
+        libraryNotice.setVisibility(View.GONE);
+        clearHero();
         renderFolders();
         renderGrid();
         browseAsync(server, BrowseStack.ROOT_ID, result -> {
@@ -845,6 +879,7 @@ public final class MainActivity extends Activity {
                 return;
             }
             folders = containersSorted(result.entries);
+            libraryNotice.setVisibility(result.incomplete ? View.VISIBLE : View.GONE);
             renderFolders();
             String savedId = library.getContainerId();
             if (savedId != null && !savedId.isBlank() && !BrowseStack.ROOT_ID.equals(savedId)) {
@@ -854,7 +889,6 @@ public final class MainActivity extends Activity {
                         library.getParentId(),
                         library.getContainerName()
                 );
-                String parentId = library.getParentId();
                 // Si la carpeta guardada ya no existe (el PC comparte otra carpeta, o se borró),
                 // se olvida y se entra de nuevo desde la raíz, en vez de mostrar el error.
                 Runnable forget = () -> {
@@ -863,13 +897,7 @@ public final class MainActivity extends Activity {
                     library.forgetContainer();
                     enterServer(server);
                 };
-                if (BrowseStack.ROOT_ID.equals(parentId) || parentId.isBlank()) {
-                    // La carpeta guardada está en la raíz: su columna ya es la que se muestra.
-                    selectFolder(saved, false, false, forget);
-                } else {
-                    // Está más adentro: se abre su nivel padre (con sus carpetas) y luego ella.
-                    openParentThenFolder(server, parentId, library.getParentName(), saved, forget);
-                }
+                restoreChain(server, savedChain(), 0, saved, forget);
             } else if (!folders.isEmpty()) {
                 // Al entrar se abre la primera carpeta; si solo tiene subcarpetas, la primera de ellas.
                 selectFolder(folders.get(0), true, true);
@@ -881,35 +909,59 @@ public final class MainActivity extends Activity {
         });
     }
 
-    /** Restaura una carpeta que está dentro de otra: la columna muestra su padre y se abre la carpeta. */
-    private void openParentThenFolder(DlnaServer server, String parentId, String parentName,
-                                      VideoItem saved, Runnable onMissing) {
-        browseAsync(server, parentId, result -> {
-            if (server != currentServer) return;
-            if (result == null) {
+    /**
+     * Niveles por donde se llega a la carpeta guardada, sin la raíz. Una versión anterior guardaba
+     * solo el nivel padre: en ese caso ese es el único nivel.
+     */
+    private List<BrowseStack.Level> savedChain() {
+        List<BrowseStack.Level> chain = new ArrayList<>();
+        for (BrowseStack.Level level : BrowseStack.decode(library.getContainerPath())) {
+            if (!BrowseStack.ROOT_ID.equals(level.id)) chain.add(level);
+        }
+        if (chain.isEmpty()) {
+            String parentId = library.getParentId();
+            if (parentId != null && !parentId.isBlank() && !BrowseStack.ROOT_ID.equals(parentId)) {
+                chain.add(new BrowseStack.Level(parentId, library.getParentName()));
+            }
+        }
+        return chain;
+    }
+
+    /**
+     * Restaura la columna nivel por nivel, desde la raíz, hasta dejar abierta la carpeta guardada.
+     * Así cada «‹» lleva al padre real. Si un nivel ya no existe, se olvida y se vuelve a la raíz.
+     */
+    private void restoreChain(DlnaServer server, List<BrowseStack.Level> chain, int index,
+                              VideoItem target, Runnable onMissing) {
+        if (server != currentServer) return;
+        if (index >= chain.size()) {
+            selectFolder(target, false, false, onMissing, null);
+            return;
+        }
+        BrowseStack.Level level = chain.get(index);
+        VideoItem entry = VideoItem.container(server.getUdn(), level.id, "", level.name);
+        selectFolder(entry, true, false, onMissing, () -> {
+            // Sin subcarpetas no hay nivel que abrir: la ruta guardada ya no coincide.
+            if (!level.id.equals(levels.top().id)) {
                 onMissing.run();
                 return;
             }
-            folders = containersSorted(result.entries);
-            levels.reset();
-            levels.push(parentId, parentName);
-            folderListStack.clear();
-            renderFolders();
-            selectFolder(saved, false, false, onMissing);
+            restoreChain(server, chain, index + 1, target, onMissing);
         });
     }
 
     private void showLibraryError() {
         folders = new ArrayList<>();
         videos = new ArrayList<>();
+        libraryNotice.setVisibility(View.GONE);
         renderFolders();
-        adapter.submit(videos);
+        submitGrid(videos);
         gridMessage.setText("No se pudo leer la carpeta del servidor DLNA.");
         gridMessage.setVisibility(View.VISIBLE);
         renderHeader();
     }
 
-    /** Carga una carpeta: sus videos van a la grilla y, si tiene subcarpetas, a la columna. */
+    /** Carga una carpeta desde la columna: sus videos van a la grilla y, si tiene subcarpetas, a la columna. */
     private void selectFolder(VideoItem folder, boolean descend) {
         selectFolder(folder, descend, false);
     }
@@ -919,13 +971,23 @@ public final class MainActivity extends Activity {
      *                 abre su primera subcarpeta para que la grilla no quede vacía.
      */
     private void selectFolder(VideoItem folder, boolean descend, boolean autoOpen) {
-        selectFolder(folder, descend, autoOpen, null);
+        selectFolder(folder, descend, autoOpen, null, null);
     }
 
-    /** @param onMissing si no es null, se llama en vez de mostrar el error cuando la carpeta no se puede leer. */
-    private void selectFolder(VideoItem folder, boolean descend, boolean autoOpen, Runnable onMissing) {
+    /**
+     * @param descend  si tiene subcarpetas, la columna pasa a mostrarlas; la carpeta abierta queda
+     *                 arriba de ellas, como nivel actual.
+     * @param autoOpen al entrar: el foco va a la primera tarjeta. Si no, el foco queda en la
+     *                 carpeta que se abrió.
+     * @param onMissing si no es null, se llama en vez de mostrar el error cuando la carpeta no se puede leer.
+     * @param onLoaded  si no es null, se llama al terminar en vez de mover el foco.
+     */
+    private void selectFolder(VideoItem folder, boolean descend, boolean autoOpen,
+                              Runnable onMissing, Runnable onLoaded) {
         DlnaServer server = currentServer;
         if (server == null) return;
+        // El detalle describe el video de la carpeta anterior: se quita al cambiar de carpeta.
+        clearHero();
         browseAsync(server, folder.getId(), result -> {
             if (server != currentServer) return;
             if (result == null) {
@@ -934,27 +996,34 @@ public final class MainActivity extends Activity {
                 return;
             }
             selectedFolder = folder;
-            // El nivel actual es el padre de la carpeta elegida (antes de abrir sus subcarpetas).
-            library.selectContainer(folder.getId(), folder.getName(),
-                    levels.top().id, levels.top().name);
+            // El nivel donde estaba la columna es el padre de la carpeta elegida (respaldo para
+            // versiones anteriores); la ruta completa se guarda después de abrir sus subcarpetas.
+            String parentId = levels.top().id;
+            String parentName = levels.top().name;
             List<VideoItem> children = containersSorted(result.entries);
             if (descend && !children.isEmpty()) {
                 folderListStack.add(new ArrayList<>(folders));
                 levels.push(folder.getId(), folder.getName());
                 folders = children;
-                focusFolderRow(null);
             }
+            library.selectContainer(folder.getId(), folder.getName(), parentId, parentName,
+                    BrowseStack.encode(levels.path()));
             // Primero los videos: la columna cuenta la carpeta abierta con ellos.
             videos = arrange(result.entries);
+            libraryNotice.setVisibility(result.incomplete ? View.VISIBLE : View.GONE);
             renderFolders();
-            adapter.submit(videos);
             renderGrid();
-            renderHeader();
+            if (videos.isEmpty()) setFolderHero(folder, children.size());
+            if (onLoaded != null) {
+                onLoaded.run();
+                return;
+            }
             if (autoOpen && videos.isEmpty() && !children.isEmpty()) {
                 selectFolder(children.get(0), true, true);
                 return;
             }
             if (autoOpen) focusLibraryEntry();
+            else focusFolderRow(folder.getId());
         });
     }
 
@@ -1050,6 +1119,14 @@ public final class MainActivity extends Activity {
         folderList.removeAllViews();
         if (!levels.isRoot() && levels.parent() != null) {
             folderList.addView(folderRow(UP_ROW_ID, "‹ " + levels.parent().name, null, false, () -> popLevel()));
+            // Nivel abierto: va arriba de sus subcarpetas. Con el punto verde, si es la carpeta
+            // que muestra la grilla; y con el foco al abrirla desde la columna.
+            BrowseStack.Level top = levels.top();
+            boolean openTop = selectedFolder != null && top.id.equals(selectedFolder.getId());
+            folderList.addView(folderRow(top.id, top.name,
+                    openTop ? String.valueOf(videos.size()) : null, openTop,
+                    () -> selectFolder(VideoItem.container(currentServer.getUdn(), top.id, "", top.name),
+                            false)));
         }
         for (VideoItem folder : folders) {
             boolean open = selectedFolder != null && folder.getId().equals(selectedFolder.getId());
@@ -1066,7 +1143,7 @@ public final class MainActivity extends Activity {
             );
             params.topMargin = TvUi.dp(this, 14);
             folderList.addView(change, params);
-            change.setOnClickListener(view -> startDiscovery(false));
+            TvUi.clickable(change, () -> startDiscovery(false));
             change.setOnFocusChangeListener((view, focused) -> {
                 TvUi.setFocusedText(change, focused);
                 if (focused) TvUi.underline(focusLine, change, root, this);
@@ -1113,7 +1190,7 @@ public final class MainActivity extends Activity {
             countParams.leftMargin = TvUi.dp(this, 10);
             row.addView(countView, countParams);
         }
-        row.setOnClickListener(view -> action.run());
+        TvUi.clickable(row, action);
         row.setOnFocusChangeListener((view, focused) -> {
             TvUi.setFocusedText(label, focused);
             // Sin foco el texto va al 62 %; la carpeta abierta se marca con el punto verde.
@@ -1152,7 +1229,7 @@ public final class MainActivity extends Activity {
         int count = videos.size();
         gridLabel.setText(folder.toUpperCase(Locale.ROOT) + " · " + count
                 + (count == 1 ? " VIDEO" : " VIDEOS") + " · " + order);
-        adapter.submit(videos);
+        submitGrid(videos);
         if (videos.isEmpty()) {
             if (selectedFolder != null) {
                 gridMessage.setText("Esta carpeta no contiene videos.");
@@ -1162,6 +1239,65 @@ public final class MainActivity extends Activity {
             gridMessage.setVisibility(View.GONE);
         }
         grid.setVisibility(View.VISIBLE);
+    }
+
+    /**
+     * Cambia el contenido de la grilla. La tarjeta enfocada deja de existir o cambia de sitio:
+     * su marco se esconde aquí, para que no quede suelto sobre el encabezado.
+     */
+    private void submitGrid(List<VideoItem> list) {
+        TvUi.hide(focusRing);
+        adapter.submit(list);
+    }
+
+    /** El detalle se limpia al cambiar de carpeta: no muestra el video de la carpeta anterior. */
+    private void clearHero() {
+        heroEyebrow.setText("");
+        heroTitle.setText("");
+        heroMeta.setText("");
+    }
+
+    /** Carpeta sin videos: el bloque muestra su nombre y cuántas subcarpetas tiene. */
+    private void setFolderHero(VideoItem folder, int subfolders) {
+        heroEyebrow.setText("");
+        heroTitle.setText(folder.getName());
+        heroMeta.setText(subfolders <= 0
+                ? ""
+                : subfolders == 1 ? "1 subcarpeta" : subfolders + " subcarpetas");
+    }
+
+    /** Lleva el foco a la tarjeta de un video, con la grilla desplazada para que se vea entera. */
+    private void focusGridEntry(String key) {
+        int index = indexOfVideo(key);
+        if (index < 0) return;
+        grid.scrollToPosition(index);
+        focusGridPosition(index, 10);
+    }
+
+    /** La grilla se dibuja después de desplazarse: se reintenta unas veces hasta encontrar la tarjeta. */
+    private void focusGridPosition(int index, int attemptsLeft) {
+        grid.post(() -> {
+            RecyclerView.ViewHolder holder = grid.findViewHolderForAdapterPosition(index);
+            if (holder != null) {
+                holder.itemView.requestFocus();
+            } else if (attemptsLeft > 1) {
+                grid.postDelayed(() -> focusGridPosition(index, attemptsLeft - 1), 30L);
+            }
+        });
+    }
+
+    private int indexOfVideo(String key) {
+        if (key == null || key.isEmpty()) return -1;
+        for (int i = 0; i < videos.size(); i++) {
+            if (key.equals(videos.get(i).stableKey())) return i;
+        }
+        return -1;
+    }
+
+    /** Video que sigue al dado en la carpeta, o null si era el último. */
+    private VideoItem videoAfter(String key) {
+        int index = indexOfVideo(key);
+        return index >= 0 && index + 1 < videos.size() ? videos.get(index + 1) : null;
     }
 
     private void showLibrary(boolean focusGrid) {
@@ -1337,8 +1473,55 @@ public final class MainActivity extends Activity {
             intent.putExtra(PlayerActivity.EXTRA_NEXT_TITLE, next.getName());
             intent.putExtra(PlayerActivity.EXTRA_NEXT_DURATION, next.getDurationMs());
         }
+        playingKey = entry.stableKey();
         thumbnailRepository.pause();
-        startActivity(intent);
+        startActivityForResult(intent, REQUEST_PLAYER);
+    }
+
+    /**
+     * Vuelve del reproductor. Si el video terminó y hay otro en la carpeta, sigue con él; si no,
+     * la biblioteca queda con el foco en el video que se reprodujo.
+     */
+    private void handlePlayerResult(int resultCode, Intent data) {
+        String key = data == null ? "" : data.getStringExtra(PlayerActivity.EXTRA_RESULT_KEY);
+        if (key == null || key.isEmpty()) key = playingKey;
+        boolean ended = resultCode == RESULT_OK
+                && data != null
+                && data.getBooleanExtra(PlayerActivity.EXTRA_RESULT_ENDED, false);
+        if (ended) {
+            VideoItem next = videoAfter(key);
+            if (next != null) {
+                startPlayer(next, -1L);
+                return;
+            }
+            showScreen(Screen.LIBRARY);
+            renderHeader();
+        }
+        pendingFocusKey = key;
+    }
+
+    /**
+     * Grilla que desplaza por filas completas: al enfocar una tarjeta, su fila queda arriba del
+     * todo y no quedan títulos sueltos al borde. Si la fila ya se ve entera, no se mueve.
+     */
+    private static final class RowGridLayoutManager extends GridLayoutManager {
+        RowGridLayoutManager(android.content.Context context, int spanCount) {
+            super(context, spanCount);
+        }
+
+        @Override
+        public boolean requestChildRectangleOnScreen(@NonNull RecyclerView parent, @NonNull View child,
+                                                     @NonNull Rect rect, boolean immediate,
+                                                     boolean focusedChildVisible) {
+            if (parent.isComputingLayout()) return false;
+            int visibleTop = parent.getPaddingTop();
+            int visibleBottom = parent.getHeight() - parent.getPaddingBottom();
+            int top = getDecoratedTop(child);
+            int bottom = getDecoratedBottom(child);
+            if (top >= visibleTop && bottom <= visibleBottom) return false;
+            parent.scrollBy(0, top - visibleTop);
+            return true;
+        }
     }
 
     // ---------------------------------------------------------------- opciones
@@ -1507,6 +1690,10 @@ public final class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_PLAYER) {
+            handlePlayerResult(resultCode, data);
+            return;
+        }
         if (appUpdater != null) appUpdater.onActivityResult(requestCode);
     }
 
@@ -1516,7 +1703,13 @@ public final class MainActivity extends Activity {
         thumbnailRepository.resume();
         resumeStore = new PlaybackResumeStore(this, settings.resumeRetentionMs());
         adapter.setResume(resumeStore);
+        // Recargar la grilla quita el foco de sus tarjetas: el marco se esconde y, si hay una
+        // tarjeta pendiente (al volver del reproductor), el foco vuelve a ella.
+        TvUi.hide(focusRing);
         adapter.refresh();
+        String key = pendingFocusKey;
+        pendingFocusKey = null;
+        if (key != null && screen == Screen.LIBRARY) focusGridEntry(key);
         if (appUpdater != null) appUpdater.onHostResume();
         enterImmersiveMode();
     }

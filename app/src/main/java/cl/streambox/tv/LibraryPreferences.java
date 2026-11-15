@@ -11,6 +11,7 @@ final class LibraryPreferences {
     private static final String KEY_CONTAINER_NAME = "container_name";
     private static final String KEY_PARENT_ID = "parent_id";
     private static final String KEY_PARENT_NAME = "parent_name";
+    private static final String KEY_CONTAINER_PATH = "container_path";
 
     private final SharedPreferences preferences;
 
@@ -40,16 +41,22 @@ final class LibraryPreferences {
                 .putString(KEY_SERVER_NAME, server.getFriendlyName())
                 .putString(KEY_CONTAINER_ID, "0")
                 .putString(KEY_CONTAINER_NAME, "Inicio")
+                .putString(KEY_CONTAINER_PATH, "")
                 .apply();
     }
 
-    /** Carpeta abierta y el nivel donde está, para restaurar la columna al volver a entrar. */
-    void selectContainer(String id, String name, String parentId, String parentName) {
+    /**
+     * Carpeta abierta y su ruta completa (ver {@link BrowseStack#encode}): la columna se restaura
+     * con todos sus niveles, para que «‹» lleve a cada padre. El nivel padre queda como respaldo
+     * para una versión anterior que aún no guardó la ruta.
+     */
+    void selectContainer(String id, String name, String parentId, String parentName, String path) {
         preferences.edit()
                 .putString(KEY_CONTAINER_ID, id)
                 .putString(KEY_CONTAINER_NAME, name)
                 .putString(KEY_PARENT_ID, parentId == null ? "0" : parentId)
                 .putString(KEY_PARENT_NAME, parentName == null ? "Inicio" : parentName)
+                .putString(KEY_CONTAINER_PATH, path == null ? "" : path)
                 .apply();
     }
 
@@ -63,7 +70,12 @@ final class LibraryPreferences {
                 .putString(KEY_CONTAINER_NAME, "Inicio")
                 .putString(KEY_PARENT_ID, "0")
                 .putString(KEY_PARENT_NAME, "Inicio")
+                .putString(KEY_CONTAINER_PATH, "")
                 .apply();
+    }
+
+    String getContainerPath() {
+        return preferences.getString(KEY_CONTAINER_PATH, "");
     }
 
     String getParentId() {

@@ -33,20 +33,22 @@ final class DlnaContentRepository {
     static final class BrowseResult {
         final List<VideoItem> entries;
         final String parentId;
+        /** Falso si alguna página o elemento no llegó tras reintentar: la lista está incompleta. */
+        final boolean incomplete;
 
-        BrowseResult(List<VideoItem> entries, String parentId) {
+        BrowseResult(List<VideoItem> entries, String parentId, boolean incomplete) {
             this.entries = entries;
             this.parentId = parentId;
+            this.incomplete = incomplete;
         }
     }
 
     /*
      * Keep Browse windows bounded so a slow or malformed server response does
      * not block the rest of a folder. Thumbnail loading happens only after
-     * DIDL has been parsed and never participates in Browse.
+     * DIDL has been parsed and never participates in Browse. La paginación
+     * (reintentos y rescate por elemento) vive en BrowsePageReader.
      */
-    private static final int PAGE_SIZE = 8;
-    private static final int MAX_ITEMS = 2_000;
     private static final long BROWSE_TIMEOUT_MS = 15_000L;
 
     private final DlnaDiscovery discovery;
@@ -58,56 +60,27 @@ final class DlnaContentRepository {
     BrowseResult browse(DlnaServer server, String objectId) throws Exception {
         List<VideoItem> result = new ArrayList<>();
         Set<String> seenIds = new HashSet<>();
-        long start = 0L;
-        long total = Long.MAX_VALUE;
-        do {
-            Page page;
-            try {
-                page = browsePage(
-                        server.getContentDirectoryService(),
-                        objectId,
-                        BrowseFlag.DIRECT_CHILDREN,
-                        start,
-                        PAGE_SIZE
-                );
-                addEntries(page.content, result, server.getUdn(), seenIds);
-            } catch (Exception pageFailure) {
-                // A later page can fail because one video resource is slow or
-                // malformed. Retry the failed window item-by-item. This also
-                // gives the first page a chance to load if only one resource
-                // is responsible for the slow response.
-                long recoveryEnd = recoveryEnd(start, total);
-                long recoveredItems = 0L;
-                for (long itemStart = start; itemStart < recoveryEnd; itemStart++) {
-                    try {
-                        Page itemPage = browsePage(
-                                server.getContentDirectoryService(),
-                                objectId,
-                                BrowseFlag.DIRECT_CHILDREN,
-                                itemStart,
-                                1L
-                        );
-                        addEntries(itemPage.content, result, server.getUdn(), seenIds);
-                        recoveredItems += itemPage.returned;
-                        if (itemPage.total > 0L) total = itemPage.total;
-                    } catch (Exception ignored) {
-                        // One broken item must not hide the remaining folder.
-                    }
+        BrowsePageReader.Outcome outcome = BrowsePageReader.<DIDLContent>read(
+                (start, count) -> {
+                    Page page = browsePage(
+                            server.getContentDirectoryService(),
+                            objectId,
+                            BrowseFlag.DIRECT_CHILDREN,
+                            start,
+                            count
+                    );
+                    return new BrowsePageReader.Window<>(page.content, page.returned, page.total);
+                },
+                content -> {
+                    addEntries(content, result, server.getUdn(), seenIds);
+                    return result.size();
                 }
-                if (recoveredItems == 0L) throw pageFailure;
-                start = recoveryEnd;
-                continue;
-            }
-            long nextStart = advanceBrowseStart(start, page.returned);
-            if (nextStart == start) break;
-            start = nextStart;
-            if (page.total > 0L) total = page.total;
-        } while (start < total && result.size() < MAX_ITEMS);
+        );
 
         String parentId = "0".equals(objectId)
                 ? null
                 : metadataParentId(server, objectId);
-        return new BrowseResult(result, parentId);
+        return new BrowseResult(result, parentId, !outcome.complete);
     }
 
     private String metadataParentId(DlnaServer server, String objectId) {
@@ -204,17 +177,11 @@ final class DlnaContentRepository {
     }
 
     static long advanceBrowseStart(long start, long returned) {
-        if (returned <= 0L) return start;
-        long next = start + returned;
-        return next <= start ? start : next;
+        return BrowsePageReader.advance(start, returned);
     }
 
     static long recoveryEnd(long start, long total) {
-        long candidate = start + PAGE_SIZE;
-        if (candidate < start) candidate = Long.MAX_VALUE;
-        return total > 0L && total < Long.MAX_VALUE
-                ? Math.min(total, candidate)
-                : candidate;
+        return BrowsePageReader.recoveryEnd(start, total);
     }
 
     private static void addEntries(
@@ -224,7 +191,7 @@ final class DlnaContentRepository {
             Set<String> seenIds
     ) {
         for (Container container : content.getContainers()) {
-            if (result.size() >= MAX_ITEMS) return;
+            if (result.size() >= BrowsePageReader.MAX_ITEMS) return;
             String id = container.getId();
             if (id == null || id.isBlank()) continue;
             if (!seenIds.add("container:" + id)) continue;
@@ -238,7 +205,7 @@ final class DlnaContentRepository {
         }
 
         for (Item item : content.getItems()) {
-            if (result.size() >= MAX_ITEMS) return;
+            if (result.size() >= BrowsePageReader.MAX_ITEMS) return;
             Resource resource = videoResource(item);
             if (resource == null) continue;
             String id = item.getId();

@@ -6,6 +6,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.Drawable;
 import android.provider.Settings;
 import android.util.TypedValue;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
@@ -105,16 +106,29 @@ final class TvUi {
      * 6 dp por debajo). {@code mover} debe estar dentro de {@code host}, un FrameLayout.
      */
     static void underline(View mover, View target, View host, Context context) {
+        underline(mover, target, host, context, 6, 1f);
+    }
+
+    /**
+     * Línea de foco a {@code gapDp} bajo {@code target}. {@code widthScale} es la escala con que
+     * el texto crece al enfocarse: la línea mide su ancho final, no el de reposo.
+     */
+    static void underline(View mover, View target, View host, Context context,
+                          int gapDp, float widthScale) {
         // Se calcula después del siguiente layout: al recibir el foco la vista puede
         // aún no tener posición y la línea quedaría en (0, 0).
         target.post(() -> {
+            if (!target.isAttachedToWindow()) {
+                hide(mover);
+                return;
+            }
             int[] at = new int[2];
             int[] origin = new int[2];
             target.getLocationInWindow(at);
             host.getLocationInWindow(origin);
             float x = at[0] - origin[0];
-            float y = at[1] - origin[1] + target.getHeight() + dp(context, 6);
-            setSize(mover, target.getWidth(), dp(context, 2));
+            float y = at[1] - origin[1] + target.getHeight() + dp(context, gapDp);
+            setSize(mover, Math.round(target.getWidth() * widthScale), dp(context, 2));
             travel(mover, x, y);
             mover.setAlpha(1f);
         });
@@ -123,6 +137,12 @@ final class TvUi {
     /** Marco blanco de 2 dp de grosor alrededor de {@code target} (6 dp fuera). */
     static void ring(View mover, View target, View host, Context context) {
         target.post(() -> {
+            // Una tarjeta ya quitada de la grilla no tiene posición: el marco se esconde en vez
+            // de quedar en (0, 0), sobre el encabezado.
+            if (!target.isAttachedToWindow()) {
+                hide(mover);
+                return;
+            }
             int[] at = new int[2];
             int[] origin = new int[2];
             target.getLocationInWindow(at);
@@ -133,6 +153,23 @@ final class TvUi {
             setSize(mover, target.getWidth() + pad * 2, target.getHeight() + pad * 2);
             travel(mover, x, y);
             mover.setAlpha(1f);
+        });
+    }
+
+    /**
+     * Acción de una fila o tarjeta: el clic y el OK del control (DPAD_CENTER) o ENTER la
+     * disparan. El OK se atiende aquí y se consume, así que no se ejecuta dos veces.
+     */
+    static void clickable(View view, Runnable action) {
+        view.setOnClickListener(ignored -> action.run());
+        view.setOnKeyListener((ignored, keyCode, event) -> {
+            if (keyCode != KeyEvent.KEYCODE_DPAD_CENTER && keyCode != KeyEvent.KEYCODE_ENTER) {
+                return false;
+            }
+            if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                action.run();
+            }
+            return true;
         });
     }
 

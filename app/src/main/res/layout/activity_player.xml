@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- SmallSp: los tamaños de 7,5 a 10 sp del OSD son los de osd_modern.xml de VibeM3U, pedidos por
+     el diseño; no se agrandan para acallar el aviso de lint. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/player_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/black"
-    android:keepScreenOn="true">
+    android:keepScreenOn="true"
+    tools:ignore="SmallSp">
 
     <androidx.media3.ui.PlayerView
         android:id="@+id/player_view"
@@ -15,166 +19,207 @@
         app:show_buffering="always"
         app:use_controller="false" />
 
-    <!-- Degradado desde abajo: el OSD de la pantalla 4 del diseño v1. -->
-    <View
+    <!-- Todo el OSD vive en este contenedor, como el OSD de VibeM3U (osd_modern.xml): degradado,
+         reloj, línea técnica y título aparecen y se ocultan juntos. Medidas tomadas de allí. -->
+    <FrameLayout
+        android:id="@+id/player_overlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@drawable/player_bottom_shade" />
-
-    <!-- Derecha: reloj, fecha, línea técnica real y de dónde viene. -->
-    <LinearLayout
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|end"
-        android:layout_marginEnd="64dp"
-        android:layout_marginBottom="52dp"
-        android:gravity="end"
-        android:orientation="vertical">
-
-        <TextView
-            android:id="@+id/player_clock"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:includeFontPadding="false"
-            android:textColor="@color/white"
-            android:textSize="64sp"
-            android:textStyle="normal" />
-
-        <TextView
-            android:id="@+id/player_date"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:includeFontPadding="false"
-            android:letterSpacing="0.2"
-            android:textColor="#99FFFFFF"
-            android:textSize="12sp" />
-
-        <TextView
-            android:id="@+id/player_tech"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="22dp"
-            android:includeFontPadding="false"
-            android:textColor="#6BFFFFFF"
-            android:textSize="13sp" />
-
-        <TextView
-            android:id="@+id/player_from"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:includeFontPadding="false"
-            android:textColor="#6BFFFFFF"
-            android:textSize="12sp" />
-    </LinearLayout>
-
-    <!-- Izquierda: eyebrow, título, barra cian con perilla, siguiente y ayuda. -->
-    <LinearLayout
-        android:id="@+id/player_osd"
-        android:layout_width="540dp"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|start"
-        android:layout_marginStart="64dp"
-        android:layout_marginBottom="52dp"
-        android:orientation="vertical"
         android:visibility="gone">
 
-        <TextView
-            android:id="@+id/player_eyebrow"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:includeFontPadding="false"
-            android:letterSpacing="0.2"
-            android:textColor="#99FFFFFF"
-            android:textSize="12sp" />
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/player_bottom_shade" />
 
-        <TextView
-            android:id="@+id/player_title"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:includeFontPadding="false"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:textColor="@color/white"
-            android:textSize="38sp"
-            android:textStyle="bold" />
-
+        <!-- Izquierda: ▲ audio y subtítulos (arriba, con su propio lugar), eyebrow, título,
+             barra con el tiempo, «Después» y ayuda. -->
         <LinearLayout
-            android:layout_width="wrap_content"
+            android:id="@+id/player_osd"
+            android:layout_width="500dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:gravity="start"
+            android:layout_gravity="bottom|start"
+            android:layout_marginStart="@dimen/channel_overlay_horizontal_margin"
+            android:layout_marginBottom="46dp"
             android:orientation="vertical">
 
-            <FrameLayout
-                android:id="@+id/player_bar_track"
-                android:layout_width="520dp"
-                android:layout_height="4dp"
-                android:background="#38FFFFFF">
+            <LinearLayout
+                android:id="@+id/player_tracks"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="14dp"
+                android:orientation="vertical"
+                android:visibility="gone">
 
-                <View
-                    android:id="@+id/player_bar_fill"
-                    android:layout_width="0dp"
-                    android:layout_height="4dp"
-                    android:background="@color/cyan_now" />
-
-                <View
-                    android:id="@+id/player_knob"
-                    android:layout_width="14dp"
-                    android:layout_height="14dp"
-                    android:layout_gravity="start|center_vertical"
-                    android:layout_marginStart="-7dp"
-                    android:background="@drawable/player_knob" />
-            </FrameLayout>
+                <LinearLayout
+                    android:id="@+id/player_track_columns"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" />
+            </LinearLayout>
 
             <TextView
-                android:id="@+id/player_time"
+                android:id="@+id/player_eyebrow"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:layout_width="520dp"
+                android:ellipsize="end"
+                android:fontFamily="sans-serif-medium"
+                android:includeFontPadding="false"
+                android:letterSpacing="0.2"
+                android:maxLines="1"
+                android:shadowColor="#73000000"
+                android:shadowDy="1"
+                android:shadowRadius="5"
+                android:textAllCaps="true"
+                android:textColor="#9EFFFFFF"
+                android:textSize="7.5sp" />
+
+            <TextView
+                android:id="@+id/player_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:letterSpacing="-0.015"
+                android:maxLines="1"
+                android:textColor="@color/white"
+                android:textSize="30sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="11dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <FrameLayout
+                    android:id="@+id/player_bar_track"
+                    android:layout_width="300dp"
+                    android:layout_height="4dp"
+                    android:background="#38FFFFFF">
+
+                    <View
+                        android:id="@+id/player_bar_fill"
+                        android:layout_width="0dp"
+                        android:layout_height="4dp"
+                        android:background="@color/cyan_now" />
+
+                    <View
+                        android:id="@+id/player_knob"
+                        android:layout_width="10dp"
+                        android:layout_height="10dp"
+                        android:layout_gravity="start|center_vertical"
+                        android:background="@drawable/player_knob" />
+                </FrameLayout>
+
+                <TextView
+                    android:id="@+id/player_time"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:ellipsize="end"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="#9EFFFFFF"
+                    android:textSize="9sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/player_next"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="7dp"
                 android:ellipsize="end"
                 android:includeFontPadding="false"
                 android:maxLines="1"
-                android:textColor="#B8C4C9"
-                android:textSize="15sp" />
+                android:textColor="#9EFFFFFF"
+                android:textSize="10sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/player_help"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="7dp"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#6BFFFFFF"
+                android:textSize="9sp" />
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/player_next"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:includeFontPadding="false"
-            android:textColor="#B8C4C9"
-            android:textSize="15sp" />
-
-        <TextView
-            android:id="@+id/player_help"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:includeFontPadding="false"
-            android:textColor="#6BFFFFFF"
-            android:textSize="12.5sp" />
-    </LinearLayout>
-
-    <!-- Franja ▲ audio y subtítulos, sobre el OSD. -->
-    <LinearLayout
-        android:id="@+id/player_tracks"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|start"
-        android:layout_marginStart="64dp"
-        android:layout_marginBottom="250dp"
-        android:orientation="vertical"
-        android:visibility="gone">
-
+        <!-- Derecha: reloj y fecha, a 42 dp del borde (osd_clock de VibeM3U). -->
         <LinearLayout
-            android:id="@+id/player_track_columns"
+            android:id="@+id/player_clock_block"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal" />
-    </LinearLayout>
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="@dimen/channel_overlay_horizontal_margin"
+            android:layout_marginBottom="42dp"
+            android:gravity="end"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/player_clock"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif-light"
+                android:includeFontPadding="false"
+                android:textColor="@color/white"
+                android:textSize="32sp" />
+
+            <TextView
+                android:id="@+id/player_date"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:fontFamily="sans-serif-medium"
+                android:includeFontPadding="false"
+                android:letterSpacing="0.2"
+                android:textAllCaps="true"
+                android:textColor="#8CFFFFFF"
+                android:textSize="7.5sp" />
+        </LinearLayout>
+
+        <!-- Derecha, debajo del reloj: formato del video y desde dónde llega (osd_tech). -->
+        <LinearLayout
+            android:id="@+id/player_tech_row"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="@dimen/channel_overlay_horizontal_margin"
+            android:layout_marginBottom="20dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/player_tech"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#6BFFFFFF"
+                android:textSize="9sp" />
+
+            <TextView
+                android:id="@+id/player_tech_sep"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:includeFontPadding="false"
+                android:text="  ·  "
+                android:textColor="#6BFFFFFF"
+                android:textSize="9sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/player_from"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#6BFFFFFF"
+                android:textSize="9sp" />
+        </LinearLayout>
+    </FrameLayout>
 </FrameLayout>
