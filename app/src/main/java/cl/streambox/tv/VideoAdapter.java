@@ -19,8 +19,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Tarjetas 196 × 110 dp de la biblioteca (diseño v1): miniatura con calidad arriba
- * a la izquierda, duración abajo a la derecha y raya cian de avance al pie.
+ * Tarjetas 228 × 128 dp de la grilla 4 × 3 de la biblioteca (mockup): miniatura con calidad
+ * arriba a la izquierda, duración abajo a la derecha y raya cian de avance al pie. Bajo la
+ * miniatura, el nombre (una línea) y el tamaño.
  */
 final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> {
     interface Listener {
@@ -31,8 +32,8 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
         void onTileSelected(VideoItem entry);
     }
 
-    static final int CARD_WIDTH_DP = 196;
-    static final int CARD_HEIGHT_DP = 110;
+    static final int CARD_WIDTH_DP = CardLayoutMath.CARD_WIDTH_DP;
+    static final int CARD_HEIGHT_DP = CardLayoutMath.CARD_HEIGHT_DP;
     /** Crecimiento y subida de la tarjeta con foco; el marco de foco usa los mismos valores. */
     static final float FOCUS_SCALE = 1.06f;
     static final int FOCUS_LIFT_DP = 4;
@@ -111,7 +112,7 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
         );
         frame.addView(none, noneParams);
 
-        TextView quality = TvUi.text(context, "", 10.5f, TvUi.WHITE, true);
+        TextView quality = TvUi.text(context, "", 10f, TvUi.WHITE, true);
         quality.setShadowLayer(6f, 0f, 1f, 0xD9000000);
         quality.setLetterSpacing(0.06f);
         frame.addView(quality, new FrameLayout.LayoutParams(
@@ -119,18 +120,20 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.TOP | Gravity.START
         ) {{
-            leftMargin = dp(context, 8);
+            leftMargin = dp(context, 7);
             topMargin = dp(context, 6);
         }});
 
-        TextView duration = TvUi.text(context, "", 11.5f, TvUi.WHITE, false);
-        duration.setShadowLayer(6f, 0f, 1f, 0xD9000000);
+        // Duración en píldora oscura (mockup): 10 sp en negrita semibold.
+        TextView duration = TvUi.text(context, "", 10f, TvUi.WHITE, true);
+        duration.setBackground(durationPill(context));
+        duration.setPadding(dp(context, 5), dp(context, 1), dp(context, 5), dp(context, 1));
         frame.addView(duration, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.BOTTOM | Gravity.END
         ) {{
-            rightMargin = dp(context, 8);
+            rightMargin = dp(context, 7);
             bottomMargin = dp(context, 6);
         }});
 
@@ -147,21 +150,22 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
 
         tile.addView(frame);
 
-        TextView name = TvUi.text(context, "", 13f, TvUi.INK_2, false);
+        // Nombre en una línea con «…» (mockup: 12,5 sp, 7 dp arriba) y tamaño debajo (10 sp).
+        TextView name = TvUi.text(context, "", 12.5f, TvUi.INK_2, false);
         name.setEllipsize(android.text.TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(
                 dp(context, CARD_WIDTH_DP),
                 ViewGroup.LayoutParams.WRAP_CONTENT
         );
-        nameParams.topMargin = dp(context, 10);
+        nameParams.topMargin = dp(context, 7);
         tile.addView(name, nameParams);
 
-        TextView sub = TvUi.text(context, "", 11f, TvUi.INK_3, false);
+        TextView sub = TvUi.text(context, "", 10f, TvUi.INK_3, false);
         LinearLayout.LayoutParams subParams = new LinearLayout.LayoutParams(
                 dp(context, CARD_WIDTH_DP),
                 ViewGroup.LayoutParams.WRAP_CONTENT
         );
-        subParams.topMargin = dp(context, 2);
+        subParams.topMargin = dp(context, 1);
         tile.addView(sub, subParams);
 
         return new VideoHolder(tile, frame, thumb, none, quality, duration, progress, name, sub);
@@ -177,9 +181,7 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
         holder.duration.setText(entry.getDurationMs() > 0L
                 ? DlnaMediaFormat.duration(entry.getDurationMs())
                 : "");
-        String year = DlnaMediaFormat.year(media.date);
-        String size = DlnaMediaFormat.size(media.sizeBytes);
-        holder.sub.setText(DlnaMediaFormat.join(java.util.Arrays.asList(year, size), " · "));
+        holder.sub.setText(DlnaMediaFormat.size(media.sizeBytes));
 
         PlaybackResumeStore.ResumePoint point = resume.get(
                 entry.stableKey(),
@@ -250,6 +252,14 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
         );
+    }
+
+    /** Fondo de la duración: negro al 72 % con esquinas de 4 dp, como el mockup. */
+    private static GradientDrawable durationPill(Context context) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(0xB8000000);
+        drawable.setCornerRadius(dp(context, 4));
+        return drawable;
     }
 
     private static GradientDrawable roundedBackground(Context context, int color) {

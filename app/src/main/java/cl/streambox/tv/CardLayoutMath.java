@@ -1,100 +1,52 @@
 package cl.streambox.tv;
 
+/**
+ * Geometría de la grilla de videos de la Biblioteca (mockup 4 × 3, 1280 × 720 dp): 4 columnas de
+ * tarjetas de 228 dp, 24 dp entre columnas y 18 dp entre filas, desde x = 248 hasta el margen
+ * derecho de 48 dp. Todas las medidas son dp del diseño; {@link TvUi#dp} las escala.
+ *
+ * <p>RecyclerView reparte el ancho en celdas iguales; los márgenes de cada celda llevan la
+ * tarjeta a su posición exacta, con paso de columna (tarjeta + separación).
+ */
 final class CardLayoutMath {
     static final int GRID_COLUMNS = 4;
-    static final int GRID_VISIBLE_ROWS = 3;
-    static final int MIN_HORIZONTAL_SPACING_DP = 7;
-    static final int VERTICAL_SPACING_DP = 3;
-    static final int CARD_PADDING_DP = 3;
-    static final int VIDEO_TITLE_HEIGHT_DP = 30;
+    static final int CARD_WIDTH_DP = 228;
+    static final int COLUMN_GAP_DP = 24;
+    static final int ROW_GAP_DP = 18;
+    static final int GRID_WIDTH_DP = GRID_COLUMNS * CARD_WIDTH_DP + (GRID_COLUMNS - 1) * COLUMN_GAP_DP;
+    /** Miniatura 16:9 de la tarjeta: 228 × 9 / 16, redondeado. */
+    static final int CARD_HEIGHT_DP = thumbnailHeight(CARD_WIDTH_DP);
 
     private CardLayoutMath() {
     }
 
-    static int cardWidth(
-            int parentWidth,
-            int paddingStart,
-            int paddingEnd,
-            int itemSpacing,
-            int columns
-    ) {
-        if (columns <= 0) return 1;
-        int contentWidth = parentWidth - paddingStart - paddingEnd;
-        int totalSpacing = itemSpacing * 2 * columns;
-        int calculated = (contentWidth - totalSpacing) / columns;
-        // A fixed span count must never overflow the RecyclerView. Overflow
-        // cuts the last column and makes every card taller than necessary.
-        return Math.max(1, calculated);
+    /** Alto de una miniatura 16:9 de {@code width} px (o dp): nunca menos de 1. */
+    static int thumbnailHeight(int width) {
+        return Math.max(1, Math.round(width * 9f / 16f));
     }
 
-    static int thumbnailHeight(int outerCardWidth, int horizontalCardPadding) {
-        int contentWidth = Math.max(1, outerCardWidth - horizontalCardPadding);
-        return Math.max(1, Math.round(contentWidth * 9f / 16f));
+    /** Paso entre el inicio de una columna y el de la siguiente: tarjeta más separación. */
+    static int columnPitchDp() {
+        return CARD_WIDTH_DP + COLUMN_GAP_DP;
     }
 
-    static int videoCardHeight(
-            int outerCardWidth,
-            int cardHorizontalPadding,
-            int cardVerticalPadding,
-            int titleHeight
-    ) {
-        return thumbnailHeight(outerCardWidth, cardHorizontalPadding)
-                + cardVerticalPadding
-                + titleHeight;
+    /** Ancho de la celda que RecyclerView asigna a cada columna. */
+    static int cellWidthDp() {
+        return GRID_WIDTH_DP / GRID_COLUMNS;
     }
 
-    static int horizontalSpacingForThreeRows(
-            int parentWidth,
-            int parentHeight,
-            int paddingStart,
-            int paddingTop,
-            int paddingEnd,
-            int paddingBottom,
-            int columns,
-            int visibleRows,
-            int minimumHorizontalSpacing,
-            int verticalSpacing,
-            int cardHorizontalPadding,
-            int cardVerticalPadding,
-            int titleHeight
-    ) {
-        int minimumSpacing = Math.max(0, minimumHorizontalSpacing);
-        if (columns <= 0 || visibleRows <= 0 || parentWidth <= 0 || parentHeight <= 0) {
-            return minimumSpacing;
-        }
+    /** Margen izquierdo de la celda de {@code column}: lleva su tarjeta al paso de columna. */
+    static int insetLeftDp(int column) {
+        return column * (columnPitchDp() - cellWidthDp());
+    }
 
-        int contentWidth = Math.max(1, parentWidth - paddingStart - paddingEnd);
-        int availableHeight = Math.max(1, parentHeight - paddingTop - paddingBottom);
-        int maxSpacing = Math.max(
-                minimumSpacing,
-                (contentWidth - columns) / (2 * columns)
-        );
-        int bestSpacing = minimumSpacing;
-        int smallestSlack = Integer.MAX_VALUE;
+    /** Margen derecho de la celda de {@code column}: lo que queda tras la tarjeta. */
+    static int insetRightDp(int column) {
+        return cellWidthDp() - CARD_WIDTH_DP - insetLeftDp(column);
+    }
 
-        for (int spacing = minimumSpacing; spacing <= maxSpacing; spacing++) {
-            int width = cardWidth(
-                    parentWidth,
-                    paddingStart,
-                    paddingEnd,
-                    spacing,
-                    columns
-            );
-            int rowStride = videoCardHeight(
-                    width,
-                    cardHorizontalPadding,
-                    cardVerticalPadding,
-                    titleHeight
-            ) + (verticalSpacing * 2);
-            int totalRowsHeight = rowStride * visibleRows;
-            if (totalRowsHeight <= availableHeight) {
-                int slack = availableHeight - totalRowsHeight;
-                if (slack < smallestSlack) {
-                    bestSpacing = spacing;
-                    smallestSlack = slack;
-                }
-            }
-        }
-        return bestSpacing;
+    /** Columna (0 a 3) de la posición {@code index} de la grilla, que llena fila a fila. */
+    static int columnOf(int index) {
+        return index % GRID_COLUMNS;
     }
 }

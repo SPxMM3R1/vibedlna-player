@@ -99,12 +99,16 @@ final class DlnaMediaFormat {
         return (int) Math.max(0L, Math.min(100L, value));
     }
 
-    /** «Viste el 44 % · quedan 1 h 33 min», sin la parte de «quedan» si no hay duración. */
-    static String progressLabel(long positionMs, long durationMs) {
-        // Sin duración no hay porcentaje: se dice hasta dónde llegó.
-        if (durationMs <= 0L) return "Visto hasta " + duration(positionMs);
-        String text = "Viste el " + percent(positionMs, durationMs) + " %";
-        return text + " · quedan " + remaining(durationMs - Math.max(0L, positionMs));
+    /**
+     * Primera letra en mayúscula, sin tocar el resto. Para los tramos que la app escribe (no los
+     * nombres que trae el servidor, que se muestran tal cual).
+     */
+    static String capitalizeFirst(String text) {
+        if (text == null || text.isEmpty()) return text == null ? "" : text;
+        int first = text.codePointAt(0);
+        int length = Character.charCount(first);
+        return new String(Character.toChars(Character.toUpperCase(first)))
+                + text.substring(length);
     }
 
     /** Tamaño en GB o MB con coma decimal («22,6 GB»). Vacío si no se conoce. */

@@ -52,7 +52,7 @@ public final class PlaybackUiFormatterTest {
         assertEquals("Original", PlaybackUiFormatter.audioLanguage(""));
         assertEquals("Original", PlaybackUiFormatter.audioLanguage("   "));
         assertEquals("Original", PlaybackUiFormatter.audioLanguage(null));
-        assertEquals("spa", PlaybackUiFormatter.audioLanguage("spa"));
+        assertEquals("Spa", PlaybackUiFormatter.audioLanguage("spa"));
     }
 
     @Test
@@ -113,9 +113,45 @@ public final class PlaybackUiFormatterTest {
     public void audioTrackLabelJoinsLanguageCodecAndChannels() {
         assertEquals("Original · AAC · Estéreo",
                 PlaybackUiFormatter.audioTrackLabel("und", "AAC", 2));
-        assertEquals("spa · E-AC-3 · 5.1",
+        assertEquals("Spa · E-AC-3 · 5.1",
                 PlaybackUiFormatter.audioTrackLabel("spa", "E-AC-3", 6));
         assertEquals("Original · Mono",
                 PlaybackUiFormatter.audioTrackLabel(null, "—", 1));
+    }
+
+    @Test
+    public void timeLineShowsPositionDurationRemainingAndPause() {
+        assertEquals("0:42 / 1:30 · Quedan 48 s · En pausa",
+                PlaybackUiFormatter.timeLine(42_000L, 90_000L, false));
+        assertEquals("0:00 / 48:00 · Quedan 48 min",
+                PlaybackUiFormatter.timeLine(0L, 2_880_000L, true));
+    }
+
+    @Test
+    public void timeLineWithoutDurationShowsOnlyPosition() {
+        assertEquals("0:42", PlaybackUiFormatter.timeLine(42_000L, 0L, true));
+        assertEquals("0:42 · En pausa", PlaybackUiFormatter.timeLine(42_000L, 0L, false));
+    }
+
+    @Test
+    public void timeLineClampsPositionPastTheEnd() {
+        assertEquals("1:30 / 1:30 · Quedan 0 s",
+                PlaybackUiFormatter.timeLine(120_000L, 90_000L, true));
+    }
+
+    @Test
+    public void helpLineSaysPauseOrPlayWithOkCapitalized() {
+        assertEquals("◀ ▶ 10 s · ▲ Audio y subtítulos · OK Pausa",
+                PlaybackUiFormatter.helpLine(true));
+        assertEquals("◀ ▶ 10 s · ▲ Audio y subtítulos · OK Reproducir",
+                PlaybackUiFormatter.helpLine(false));
+    }
+
+    @Test
+    public void fromLineJoinsServerAndHost() {
+        assertEquals("Desde VibeDLNA Prueba · 192.168.3.4",
+                PlaybackUiFormatter.fromLine("VibeDLNA Prueba", "192.168.3.4"));
+        assertEquals("Desde VibeDLNA Prueba", PlaybackUiFormatter.fromLine("VibeDLNA Prueba", ""));
+        assertEquals("", PlaybackUiFormatter.fromLine("", ""));
     }
 }

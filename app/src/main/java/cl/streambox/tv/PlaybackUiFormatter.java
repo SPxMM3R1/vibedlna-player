@@ -21,6 +21,35 @@ final class PlaybackUiFormatter {
                 + elapsed(durationMs);
     }
 
+    /**
+     * Línea de tiempo del OSD: «0:42 / 1:30 · Quedan 48 min · En pausa». Sin duración conocida
+     * solo va la posición. Cada tramo empieza con mayúscula.
+     */
+    static String timeLine(long positionMs, long durationMs, boolean playing) {
+        long position = Math.max(0L, positionMs);
+        java.util.List<String> parts = new java.util.ArrayList<>();
+        if (durationMs > 0L) {
+            long shown = Math.min(position, durationMs);
+            parts.add(DlnaMediaFormat.duration(shown) + " / " + DlnaMediaFormat.duration(durationMs));
+            parts.add("Quedan " + DlnaMediaFormat.remaining(durationMs - shown));
+        } else {
+            parts.add(DlnaMediaFormat.duration(position));
+        }
+        if (!playing) parts.add("En pausa");
+        return DlnaMediaFormat.join(parts, " · ");
+    }
+
+    /** Ayuda del OSD: el OK dice lo que hará, «Pausa» al reproducir y «Reproducir» en pausa. */
+    static String helpLine(boolean playing) {
+        return "◀ ▶ 10 s · ▲ Audio y subtítulos · OK " + (playing ? "Pausa" : "Reproducir");
+    }
+
+    /** «Desde VibeDLNA Prueba · 192.168.3.4»; vacío si no hay ni servidor ni host. */
+    static String fromLine(String server, String host) {
+        String source = DlnaMediaFormat.join(java.util.Arrays.asList(server, host), " · ");
+        return source.isEmpty() ? "" : "Desde " + source;
+    }
+
     static String endingAt(long nowMs, long positionMs, long durationMs, Locale locale) {
         long remaining = Math.max(0L, durationMs - Math.max(0L, positionMs));
         String value = new SimpleDateFormat("HH:mm", locale)
@@ -28,12 +57,15 @@ final class PlaybackUiFormatter {
         return "Terminar\u00e1 a las " + value;
     }
 
-    /** Idioma de una pista de audio: «und» o vacío significa «Original». */
+    /**
+     * Idioma de una pista de audio: «und» o vacío significa «Original». El código que trae la
+     * pista se muestra con mayúscula inicial («Spa»), como todos los tramos de la app.
+     */
     static String audioLanguage(String language) {
         if (language == null) return "Original";
         String value = language.trim();
         if (value.isEmpty() || "und".equalsIgnoreCase(value)) return "Original";
-        return value;
+        return DlnaMediaFormat.capitalizeFirst(value);
     }
 
     /** Canales de una pista de audio: 1 = Mono, 2 = Estéreo, 6 = 5.1, 8 = 7.1, el resto «N ch». */

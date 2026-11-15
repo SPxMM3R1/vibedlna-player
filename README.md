@@ -11,7 +11,9 @@ Reproductor DLNA para Android TV con la interfaz compacta de VibeM3U.
   `ContentDirectory:Browse` ejecutado por jUPnP.
 - Guarda en almacenamiento privado las miniaturas que el servidor anuncia y
   deja el estado vacío cuando el servidor no proporciona una imagen lista.
-- Muestra las carpetas en tarjetas compactas y los videos en tarjetas 16:9.
+- Muestra las carpetas en una columna angosta y los videos en una grilla de
+  4 columnas con tarjetas 16:9. El avance de un video se ve en una barra
+  ondulada (la parte vista se mueve al reproducir y se aplana en pausa).
 - Conserva temporalmente la posición de un video durante una hora para
   reanudarlo automáticamente; no mantiene historial permanente.
 

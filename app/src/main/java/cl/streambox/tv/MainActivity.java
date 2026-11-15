@@ -60,6 +60,13 @@ public final class MainActivity extends Activity {
     private static final long SEARCH_RETRY_MS = 15_000L;
     private static final int REQUEST_PLAYER = 41;
     private static final String INCOMPLETE_NOTICE = "No se pudo leer todo: faltan algunos elementos";
+    /** Biblioteca (mockup 1280 × 720 dp): margen de la columna y del encabezado. */
+    private static final int LIBRARY_MARGIN_DP = 48;
+    /** Columna de carpetas: 168 dp desde el margen. */
+    private static final int FOLDER_COLUMN_WIDTH_DP = 168;
+    /** Detalle compacto y grilla empiezan en x = 248 y la grilla baja en y = 176. */
+    private static final int GRID_LEFT_DP = 248;
+    private static final int GRID_TOP_DP = 176;
 
     private enum Screen { SERVERS, LIBRARY, DETAIL, OPTIONS }
 
@@ -139,8 +146,7 @@ public final class MainActivity extends Activity {
     private TextView detailEyebrow;
     private TextView detailTitle;
     private LinearLayout detailFacts;
-    private View detailBar;
-    private View detailBarTrack;
+    private WavyProgressBar detailBar;
     private TextView detailProgress;
     private TextView detailResume;
     private TextView detailFromStart;
@@ -327,6 +333,11 @@ public final class MainActivity extends Activity {
 
     /** Logo, texto de ruta y reloj en la franja superior (left 64, top 44). */
     private TextView header(FrameLayout parent, String eyebrow) {
+        return header(parent, eyebrow, 64, 44, 64);
+    }
+
+    /** Franja superior con sus márgenes en dp: la Biblioteca la pone a 48 y 30 (mockup). */
+    private TextView header(FrameLayout parent, String eyebrow, int leftDp, int topDp, int rightDp) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -334,9 +345,9 @@ public final class MainActivity extends Activity {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT
         );
-        rowParams.leftMargin = TvUi.dp(this, 64);
-        rowParams.rightMargin = TvUi.dp(this, 64);
-        rowParams.topMargin = TvUi.dp(this, 44);
+        rowParams.leftMargin = TvUi.dp(this, leftDp);
+        rowParams.rightMargin = TvUi.dp(this, rightDp);
+        rowParams.topMargin = TvUi.dp(this, topDp);
         row.setLayoutParams(rowParams);
 
         View logo = new View(this);
@@ -416,45 +427,49 @@ public final class MainActivity extends Activity {
     }
 
     private void buildLibrary() {
-        libraryCrumbs = header(screenLibrary, "");
+        // Encabezado de la biblioteca: cuadro y ruta a 48 dp del borde, a 30 dp de arriba (mockup).
+        libraryCrumbs = header(screenLibrary, "", LIBRARY_MARGIN_DP, 30, LIBRARY_MARGIN_DP);
 
-        TextView label = TvUi.text(this, "CARPETAS", 11f, TvUi.INK_3, false);
+        TextView label = TvUi.text(this, "CARPETAS", 9f, TvUi.INK_3, false);
         label.setLetterSpacing(0.2f);
-        place(screenLibrary, label, 64, 118);
+        place(screenLibrary, label, LIBRARY_MARGIN_DP, 82);
 
         folderList = new LinearLayout(this);
         folderList.setOrientation(LinearLayout.VERTICAL);
         folderList.setClipChildren(false);
-        // Ancho fijo: el texto con foco crece en negrita y no debe cortarse en el borde.
-        place(screenLibrary, folderList, 64, 150, 340);
+        // Columna angosta de 168 dp: los nombres largos se cortan con «…» dentro de ella.
+        place(screenLibrary, folderList, LIBRARY_MARGIN_DP, 102, FOLDER_COLUMN_WIDTH_DP);
 
-        heroEyebrow = TvUi.text(this, "", 12f, 0x99FFFFFF, false);
+        // Detalle compacto del video con foco: duración, título en una línea y línea técnica.
+        heroEyebrow = TvUi.text(this, "", 9f, TvUi.INK_3, false);
         heroEyebrow.setLetterSpacing(0.2f);
         heroEyebrow.setAllCaps(true);
-        place(screenLibrary, heroEyebrow, 420, 118);
+        place(screenLibrary, heroEyebrow, GRID_LEFT_DP, 76, CardLayoutMath.GRID_WIDTH_DP);
 
-        heroTitle = TvUi.text(this, "", 34f, TvUi.WHITE, true);
-        heroTitle.setSingleLine(false);
-        heroTitle.setMaxLines(2);
+        heroTitle = TvUi.text(this, "", 24f, TvUi.WHITE, true);
         heroTitle.setEllipsize(TextUtils.TruncateAt.END);
-        place(screenLibrary, heroTitle, 420, 146, 700);
+        place(screenLibrary, heroTitle, GRID_LEFT_DP, 90, CardLayoutMath.GRID_WIDTH_DP);
 
-        heroMeta = TvUi.text(this, "", 13f, TvUi.INK_3, false);
-        place(screenLibrary, heroMeta, 420, 236);
+        heroMeta = TvUi.text(this, "", 11f, TvUi.INK_2, false);
+        heroMeta.setEllipsize(TextUtils.TruncateAt.END);
+        place(screenLibrary, heroMeta, GRID_LEFT_DP, 122, CardLayoutMath.GRID_WIDTH_DP);
 
-        gridLabel = TvUi.text(this, "", 11f, TvUi.INK_3, false);
+        // Encabezado de la grilla («PELÍCULAS · 20 VIDEOS · POR NOMBRE») y el aviso de lectura
+        // incompleta, a la derecha de la misma línea.
+        gridLabel = TvUi.text(this, "", 9f, TvUi.INK_3, false);
         gridLabel.setLetterSpacing(0.2f);
-        place(screenLibrary, gridLabel, 420, 288);
+        place(screenLibrary, gridLabel, GRID_LEFT_DP, 154);
 
         gridMessage = TvUi.text(this, "", 13f, TvUi.INK_3, false);
-        place(screenLibrary, gridMessage, 420, 340);
+        place(screenLibrary, gridMessage, GRID_LEFT_DP, 200, CardLayoutMath.GRID_WIDTH_DP);
 
         libraryNotice = TvUi.text(this, INCOMPLETE_NOTICE, 11f, TvUi.INK_3, false);
+        libraryNotice.setGravity(Gravity.END);
         libraryNotice.setVisibility(View.GONE);
-        place(screenLibrary, libraryNotice, 420, 262);
+        place(screenLibrary, libraryNotice, GRID_LEFT_DP, 154, CardLayoutMath.GRID_WIDTH_DP);
 
         grid = new RecyclerView(this);
-        grid.setLayoutManager(new RowGridLayoutManager(this, 3));
+        grid.setLayoutManager(new RowGridLayoutManager(this, CardLayoutMath.GRID_COLUMNS));
         // La grilla recorta en el borde del área de contenido (los títulos de una fila que sale no
         // quedan sobre el encabezado) y deja margen arriba y abajo: la tarjeta con foco, ya
         // crecida y con su marco, queda entera.
@@ -478,23 +493,33 @@ public final class MainActivity extends Activity {
                 }
             }
         });
+        // Cada tarjeta lleva su columna a la posición de CardLayoutMath (paso de 252 dp) y deja
+        // 18 dp hasta la fila siguiente; las filas no tienen separación arriba.
         grid.addItemDecoration(new RecyclerView.ItemDecoration() {
             @Override
             public void getItemOffsets(@NonNull Rect outRect, @NonNull View view,
                                        @NonNull RecyclerView parent,
                                        @NonNull RecyclerView.State state) {
-                int horizontal = TvUi.dp(MainActivity.this, 10);
-                int vertical = TvUi.dp(MainActivity.this, 13);
-                outRect.set(horizontal, vertical, horizontal, vertical);
+                int position = parent.getChildAdapterPosition(view);
+                if (position == RecyclerView.NO_POSITION) {
+                    outRect.setEmpty();
+                    return;
+                }
+                int column = CardLayoutMath.columnOf(position);
+                outRect.left = TvUi.dp(MainActivity.this, CardLayoutMath.insetLeftDp(column));
+                outRect.right = TvUi.dp(MainActivity.this, CardLayoutMath.insetRightDp(column));
+                outRect.top = 0;
+                outRect.bottom = TvUi.dp(MainActivity.this, CardLayoutMath.ROW_GAP_DP);
             }
         });
         FrameLayout.LayoutParams gridParams = new FrameLayout.LayoutParams(
-                TvUi.dp(this, 648),
-                TvUi.dp(this, 400),
+                TvUi.dp(this, CardLayoutMath.GRID_WIDTH_DP),
+                FrameLayout.LayoutParams.MATCH_PARENT,
                 Gravity.TOP | Gravity.START
         );
-        gridParams.leftMargin = TvUi.dp(this, 410);
-        gridParams.topMargin = TvUi.dp(this, 316);
+        gridParams.leftMargin = TvUi.dp(this, GRID_LEFT_DP);
+        gridParams.topMargin = TvUi.dp(this, GRID_TOP_DP);
+        // Hasta el borde inferior: el margen de abajo (padding) deja entera la tarjeta crecida.
         grid.setLayoutParams(gridParams);
         screenLibrary.addView(grid);
     }
@@ -549,13 +574,8 @@ public final class MainActivity extends Activity {
         progressParams.topMargin = TvUi.dp(this, 28);
         block.addView(progressRow, progressParams);
 
-        FrameLayout track = new FrameLayout(this);
-        detailBarTrack = track;
-        track.setBackgroundColor(0x38FFFFFF);
-        progressRow.addView(track, new LinearLayout.LayoutParams(TvUi.dp(this, 300), TvUi.dp(this, 4)));
-        detailBar = new View(this);
-        detailBar.setBackgroundColor(TvUi.NOW);
-        track.addView(detailBar, new FrameLayout.LayoutParams(0, TvUi.dp(this, 4)));
+        detailBar = new WavyProgressBar(this);
+        progressRow.addView(detailBar, new LinearLayout.LayoutParams(TvUi.dp(this, 300), TvUi.dp(this, 14)));
 
         detailProgress = TvUi.text(this, "", 14f, TvUi.INK_2, false);
         LinearLayout.LayoutParams progressTextParams = new LinearLayout.LayoutParams(
@@ -665,7 +685,7 @@ public final class MainActivity extends Activity {
             public void onCheckUpdatesRequested() {
                 appUpdater.checkForUpdates();
             }
-        }, "0.4.2", tabs, rows);
+        }, "0.4.3", tabs, rows);
     }
 
     // ---------------------------------------------------------------- utilidades de vista
@@ -705,7 +725,8 @@ public final class MainActivity extends Activity {
     }
 
     private void updateClocks() {
-        String text = new SimpleDateFormat("EEEE d · HH:mm", new Locale("es")).format(new Date());
+        String text = DlnaMediaFormat.capitalizeFirst(
+                new SimpleDateFormat("EEEE d · HH:mm", new Locale("es")).format(new Date()));
         for (TextView clock : clocks) clock.setText(text);
     }
 
@@ -818,8 +839,8 @@ public final class MainActivity extends Activity {
                     ? new SimpleDateFormat("HH:mm", new Locale("es")).format(new Date(seen))
                     : "";
             String detail = since.isEmpty()
-                    ? "no responde"
-                    : "no responde desde las " + since;
+                    ? "No responde"
+                    : "No responde desde las " + since;
             serversList.addView(serverRow(library.getServerName(), detail, false, () -> {
             }));
         }
@@ -1206,10 +1227,11 @@ public final class MainActivity extends Activity {
                     () -> selectFolder(folder, true)));
         }
         if (currentServer != null) {
-            TextView change = TvUi.text(this, "Cambiar de servidor", 14f, TvUi.INK_2, false);
+            TextView change = TvUi.text(this, "Cambiar de servidor", 12.5f, TvUi.INK_2, false);
             change.setFocusable(true);
+            change.setEllipsize(TextUtils.TruncateAt.END);
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
             );
             params.topMargin = TvUi.dp(this, 14);
@@ -1229,16 +1251,20 @@ public final class MainActivity extends Activity {
         row.setFocusable(true);
         row.setClipChildren(false);
         row.setTag(id);
+        // Columna de 168 dp: la fila ocupa todo su ancho y el nombre se corta con «…».
         LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
         );
-        rowParams.bottomMargin = TvUi.dp(this, id.equals(UP_ROW_ID) ? 16 : 16);
+        rowParams.bottomMargin = TvUi.dp(this, 2);
         row.setLayoutParams(rowParams);
+        row.setPadding(0, TvUi.dp(this, 6), 0, TvUi.dp(this, 6));
 
-        TextView label = TvUi.text(this, name, id.equals(UP_ROW_ID) ? 14f : 17f,
+        boolean up = id.equals(UP_ROW_ID);
+        TextView label = TvUi.text(this, name, up ? 12.5f : 14.5f,
                 open ? TvUi.WHITE : TvUi.INK_2, open);
-        row.addView(label);
+        label.setEllipsize(TextUtils.TruncateAt.END);
+        row.addView(label, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         if (open) {
             View dot = new View(this);
             GradientDrawable shape = new GradientDrawable();
@@ -1246,19 +1272,19 @@ public final class MainActivity extends Activity {
             shape.setColor(TvUi.LIVE);
             dot.setBackground(shape);
             LinearLayout.LayoutParams dotParams = new LinearLayout.LayoutParams(
-                    TvUi.dp(this, 7),
-                    TvUi.dp(this, 7)
+                    TvUi.dp(this, 5),
+                    TvUi.dp(this, 5)
             );
-            dotParams.leftMargin = TvUi.dp(this, 10);
+            dotParams.leftMargin = TvUi.dp(this, 8);
             row.addView(dot, dotParams);
         }
         if (count != null) {
-            TextView countView = TvUi.text(this, count, 13f, TvUi.INK_3, false);
+            TextView countView = TvUi.text(this, count, 11f, TvUi.INK_3, false);
             LinearLayout.LayoutParams countParams = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
             );
-            countParams.leftMargin = TvUi.dp(this, 10);
+            countParams.leftMargin = TvUi.dp(this, 8);
             row.addView(countView, countParams);
         }
         TvUi.clickable(row, action);
@@ -1393,16 +1419,7 @@ public final class MainActivity extends Activity {
 
     private void setHero(VideoItem entry) {
         MediaInfo media = entry.getMedia();
-        PlaybackResumeStore.ResumePoint point = resumeStore.get(entry.stableKey(), System.currentTimeMillis());
-        if (point != null) {
-            heroEyebrow.setText("• " + DlnaMediaFormat.progressLabel(point.positionMs, point.durationMs));
-            heroEyebrow.setTextColor(TvUi.NOW);
-        } else {
-            String year = DlnaMediaFormat.year(media.date);
-            String duration = entry.getDurationMs() > 0L ? DlnaMediaFormat.duration(entry.getDurationMs()) : "";
-            heroEyebrow.setText(DlnaMediaFormat.join(java.util.Arrays.asList(year, duration), " · "));
-            heroEyebrow.setTextColor(0x99FFFFFF);
-        }
+        heroEyebrow.setText(entry.getDurationMs() > 0L ? DlnaMediaFormat.duration(entry.getDurationMs()) : "");
         heroTitle.setText(entry.getName());
         heroMeta.setText(DlnaMediaFormat.mediaLine(media));
         showBackdrop(entry);
@@ -1470,16 +1487,14 @@ public final class MainActivity extends Activity {
                 DlnaMediaFormat.mbps(media.bitrateBytesPerSecond)), " · ");
         addFact(detailFacts, "Archivo", file, 34);
 
-        int percent = point == null ? 0 : DlnaMediaFormat.percent(point.positionMs, point.durationMs);
-        LinearLayout.LayoutParams barParams = (LinearLayout.LayoutParams) detailBarTrack.getLayoutParams();
-        barParams.width = TvUi.dp(this, 300);
-        detailBar.getLayoutParams().width = TvUi.dp(this, 300) * percent / 100;
-        detailBar.requestLayout();
+        // En el detalle el video no está sonando: la onda queda plana y muestra el avance.
+        detailBar.setProgress(point == null ? 0L : point.positionMs, point == null ? 0L : point.durationMs);
+        detailBar.setPlaying(false);
         if (point != null) {
             detailProgress.setText(DlnaMediaFormat.duration(point.positionMs) + " de "
-                    + DlnaMediaFormat.duration(point.durationMs) + " · quedan "
+                    + DlnaMediaFormat.duration(point.durationMs) + " · Quedan "
                     + DlnaMediaFormat.remaining(point.durationMs - point.positionMs)
-                    + " · se recuerda " + retentionPhrase());
+                    + " · Se recuerda " + retentionPhrase());
             detailResume.setText("Reanudar desde " + DlnaMediaFormat.duration(point.positionMs));
         } else {
             detailProgress.setText("Sin empezar");

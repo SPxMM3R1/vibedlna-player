@@ -80,7 +80,6 @@ public final class PlayerActivity extends Activity {
     private static final long SEEK_STEP_MS = 10_000L;
     private static final long SEEK_FAST_STEP_MS = 30_000L;
     private static final long RESUME_SAVE_INTERVAL_MS = 10_000L;
-    private static final int KNOB_TRAVEL_DP = 300;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService resumeExecutor = Executors.newSingleThreadExecutor();
@@ -90,9 +89,7 @@ public final class PlayerActivity extends Activity {
     private LinearLayout osd;
     private TextView eyebrow;
     private TextView title;
-    private View barTrack;
-    private View barFill;
-    private View knob;
+    private WavyProgressBar bar;
     private TextView time;
     private TextView next;
     private TextView help;
@@ -156,9 +153,7 @@ public final class PlayerActivity extends Activity {
         osd = findViewById(R.id.player_osd);
         eyebrow = findViewById(R.id.player_eyebrow);
         title = findViewById(R.id.player_title);
-        barTrack = findViewById(R.id.player_bar_track);
-        barFill = findViewById(R.id.player_bar_fill);
-        knob = findViewById(R.id.player_knob);
+        bar = findViewById(R.id.player_bar);
         time = findViewById(R.id.player_time);
         next = findViewById(R.id.player_next);
         help = findViewById(R.id.player_help);
@@ -191,7 +186,7 @@ public final class PlayerActivity extends Activity {
         title.setText(titleValue == null || titleValue.isBlank() ? "Video" : titleValue);
         eyebrow.setText(DlnaMediaFormat.join(java.util.Arrays.asList(server, folder), " · ")
                 .toUpperCase(Locale.ROOT));
-        from.setText("desde " + DlnaMediaFormat.join(java.util.Arrays.asList(server, host), " · "));
+        from.setText(PlaybackUiFormatter.fromLine(server, host));
         // Sin siguiente video la línea «Después» no se muestra: ni texto ni espacio.
         if (nextTitle.isEmpty()) {
             next.setVisibility(View.GONE);
@@ -199,7 +194,6 @@ public final class PlayerActivity extends Activity {
             next.setText(nextTitle + " · " + DlnaMediaFormat.duration(nextDurationMs));
             next.setVisibility(View.VISIBLE);
         }
-        help.setText("◀ ▶ 10 s · ▲ audio y subtítulos · OK pausa");
         createPlayer(Uri.parse(uriValue));
         showOverlay();
     }
@@ -359,24 +353,12 @@ public final class PlayerActivity extends Activity {
         long duration = playbackDuration();
         long position = Math.max(0L, player.getCurrentPosition());
         boolean playing = player.isPlaying();
-        if (duration <= 0L || duration == C.TIME_UNSET) {
-            time.setText(DlnaMediaFormat.duration(position) + (playing ? "" : " · en pausa"));
-            return;
-        }
-        int fraction = PlaybackMath.progress(position, duration, 1000);
-        int barWidth = dpWidth(barTrack);
-        barFill.getLayoutParams().width = barWidth * fraction / 1000;
-        barFill.requestLayout();
-        knob.setTranslationX(barWidth * fraction / 1000f - knob.getWidth() / 2f);
-        time.setText(DlnaMediaFormat.duration(position) + " / " + DlnaMediaFormat.duration(duration)
-                + " · quedan " + DlnaMediaFormat.remaining(duration - position)
-                + (playing ? "" : " · en pausa"));
-        updateTechLine();
-    }
-
-    private int dpWidth(View view) {
-        int width = view.getWidth();
-        return width > 0 ? width : px(KNOB_TRAVEL_DP);
+        boolean known = duration > 0L && duration != C.TIME_UNSET;
+        help.setText(PlaybackUiFormatter.helpLine(playing));
+        time.setText(PlaybackUiFormatter.timeLine(position, known ? duration : 0L, playing));
+        bar.setProgress(position, known ? duration : 0L);
+        bar.setPlaying(playing);
+        if (known) updateTechLine();
     }
 
     /** Medida en dp del OSD, sin el factor de escala de las pantallas de la biblioteca. */
@@ -773,7 +755,7 @@ public final class PlayerActivity extends Activity {
                 String language = format.language == null || format.language.isEmpty()
                         || "und".equalsIgnoreCase(format.language)
                         ? "Pista " + (index + 1)
-                        : format.language;
+                        : DlnaMediaFormat.capitalizeFirst(format.language);
                 text = DlnaMediaFormat.join(java.util.Arrays.asList(
                         language,
                         "—".equals(codec) ? "" : codec

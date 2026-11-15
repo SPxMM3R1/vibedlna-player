@@ -61,11 +61,18 @@ public final class DlnaMediaFormatTest {
     }
 
     @Test
-    public void progressLabelShowsPercentAndRemaining() {
-        assertEquals("Viste el 44 % · quedan 1 h 33 min",
-                DlnaMediaFormat.progressLabel(4_380_000L, 9_960_000L));
+    public void percentRoundsToTheNearestWholePercent() {
         assertEquals(44, DlnaMediaFormat.percent(4_380_000L, 9_960_000L));
-        assertEquals("Visto hasta 1:13:00", DlnaMediaFormat.progressLabel(4_380_000L, 0L));
+        assertEquals(0, DlnaMediaFormat.percent(1L, 0L));
+    }
+
+    @Test
+    public void capitalizeFirstChangesOnlyTheFirstLetter() {
+        assertEquals("Quedan 48 min", DlnaMediaFormat.capitalizeFirst("quedan 48 min"));
+        assertEquals("Ñandú", DlnaMediaFormat.capitalizeFirst("ñandú"));
+        assertEquals("Películas", DlnaMediaFormat.capitalizeFirst("Películas"));
+        assertEquals("", DlnaMediaFormat.capitalizeFirst(""));
+        assertEquals("", DlnaMediaFormat.capitalizeFirst(null));
     }
 
     @Test

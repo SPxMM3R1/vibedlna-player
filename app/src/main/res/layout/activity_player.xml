@@ -94,25 +94,11 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
-                <FrameLayout
-                    android:id="@+id/player_bar_track"
+                <!-- Barra ondulada Material 3 (300 dp, como la de antes): onda cian, línea que falta y punto. -->
+                <cl.streambox.tv.WavyProgressBar
+                    android:id="@+id/player_bar"
                     android:layout_width="300dp"
-                    android:layout_height="4dp"
-                    android:background="#38FFFFFF">
-
-                    <View
-                        android:id="@+id/player_bar_fill"
-                        android:layout_width="0dp"
-                        android:layout_height="4dp"
-                        android:background="@color/cyan_now" />
-
-                    <View
-                        android:id="@+id/player_knob"
-                        android:layout_width="10dp"
-                        android:layout_height="10dp"
-                        android:layout_gravity="start|center_vertical"
-                        android:background="@drawable/player_knob" />
-                </FrameLayout>
+                    android:layout_height="14dp" />
 
                 <TextView
                     android:id="@+id/player_time"
