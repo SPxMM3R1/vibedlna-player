@@ -19,7 +19,7 @@ import org.jupnp.model.meta.Service;
 import org.jupnp.model.types.UDADeviceType;
 import org.jupnp.model.types.UDAServiceId;
 import org.jupnp.model.types.UDN;
-import org.jupnp.binding.xml.UDA10DeviceDescriptorBinderImpl;
+import org.jupnp.protocol.RetrieveRemoteDescriptors;
 import org.jupnp.registry.DefaultRegistryListener;
 import org.jupnp.registry.Registry;
 
@@ -253,8 +253,18 @@ final class DlnaDiscovery implements AutoCloseable {
                 null
         );
         RemoteDevice undescribed = new RemoteDevice(identity);
-        RemoteDevice device = new UDA10DeviceDescriptorBinderImpl().describe(undescribed, xml);
-        service.getRegistry().addDevice(device);
+        // jUPnP baja la descripción y el SCPD de cada servicio (sin SCPD no existe la
+        // acción Browse y addDevice descarta el servidor) y lo deja en su registro.
+        new RetrieveRemoteDescriptors(service.get(), undescribed).run();
+        RemoteDevice device = service.getRegistry().getRemoteDevice(
+                UDN.valueOf(matcher.group(1)),
+                true
+        );
+        if (device == null) {
+            throw new IOException("jUPnP no pudo describir el servidor de depuración.");
+        }
+        // Se guarda también en la lista: no depende del aviso asíncrono del registro.
+        addDevice(device);
     }
 
     private static String readText(URL url) throws IOException {

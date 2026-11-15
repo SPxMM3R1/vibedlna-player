@@ -56,6 +56,7 @@ public final class MainActivity extends Activity {
     private static final String EXTRA_DEBUG_SERVER_URL = "debug_server_url";
     private static final String UP_ROW_ID = "__arriba__";
     private static final long CLOCK_TICK_MS = 15_000L;
+    private static final long SEARCH_RETRY_MS = 15_000L;
 
     private enum Screen { SERVERS, LIBRARY, DETAIL, OPTIONS }
 
@@ -88,12 +89,14 @@ public final class MainActivity extends Activity {
     private PlaybackResumeStore.ResumePoint detailPoint;
     private Screen screen = Screen.SERVERS;
     private Screen returnScreen = Screen.LIBRARY;
-    private String pendingDebugUrl;
+    /** URL de depuración (solo debug). Se conserva hasta registrarla con éxito. */
+    private volatile String debugUrl;
+    private volatile boolean debugRegistered;
+    private boolean searching;
     private int discoveryGeneration;
     private int browseGeneration;
     private int backdropFlip;
     private String backdropToken = "";
-    private String debugUrlUsed;
 
     private FrameLayout root;
     private ImageView backdropA;
@@ -184,7 +187,7 @@ public final class MainActivity extends Activity {
         updateClocks();
 
         if (isDebuggable()) {
-            pendingDebugUrl = getIntent().getStringExtra(EXTRA_DEBUG_SERVER_URL);
+            debugUrl = getIntent().getStringExtra(EXTRA_DEBUG_SERVER_URL);
         }
         appUpdater = new AppUpdater(this, updateExecutor, mainHandler);
         appUpdater.checkForUpdates();
@@ -611,6 +614,7 @@ public final class MainActivity extends Activity {
 
     private void showScreen(Screen next) {
         screen = next;
+        if (next != Screen.SERVERS) mainHandler.removeCallbacks(retrySearch);
         screenServers.setVisibility(next == Screen.SERVERS ? View.VISIBLE : View.GONE);
         // Con Opciones abiertas la biblioteca se oculta: solo queda el fondo de miniatura.
         screenLibrary.setVisibility(next == Screen.LIBRARY ? View.VISIBLE : View.GONE);
@@ -651,27 +655,30 @@ public final class MainActivity extends Activity {
      */
     private void startDiscovery(boolean automatic) {
         int generation = ++discoveryGeneration;
+        searching = true;
+        mainHandler.removeCallbacks(retrySearch);
         showScreen(Screen.SERVERS);
         setLoadingServers(true);
-        renderServers(new ArrayList<>(), true);
-        String debugUrl = pendingDebugUrl;
-        pendingDebugUrl = null;
+        String url = debugUrl;
+        boolean registerUrl = url != null && !debugRegistered;
         dlnaExecutor.submit(() -> {
-            if (debugUrl != null) {
+            if (registerUrl) {
                 try {
-                    discovery.registerDebugServer(debugUrl);
-                    debugUrlUsed = debugUrl;
+                    discovery.registerDebugServer(url);
+                    debugRegistered = true;
+                    Log.i(TAG, "Servidor de depuración registrado: " + url);
                 } catch (Exception failure) {
-                    Log.w(TAG, "No se pudo registrar el servidor de depuración", failure);
+                    Log.w(TAG, "No se pudo registrar el servidor de depuración " + url, failure);
                 }
             }
             List<DlnaServer> found = discovery.discover(5_000L);
+            Log.i(TAG, "Búsqueda: " + found.size() + " servidor(es) en línea");
             for (DlnaServer server : found) {
                 server.setSummary(contentRepository.rootSummary(server));
             }
             mainHandler.post(() -> {
                 if (generation != discoveryGeneration || isFinishing()) return;
-                setLoadingServers(false);
+                searching = false;
                 online.clear();
                 online.addAll(found);
                 long now = System.currentTimeMillis();
@@ -683,9 +690,18 @@ public final class MainActivity extends Activity {
                     return;
                 }
                 renderServers(online, false);
+                // Sin salida: mientras la pantalla siga abierta se vuelve a buscar.
+                if (screen == Screen.SERVERS) {
+                    mainHandler.postDelayed(retrySearch, SEARCH_RETRY_MS);
+                }
             });
         });
     }
+
+    /** Vuelve a buscar servidores cada cierto tiempo mientras la pantalla de Servidores esté abierta. */
+    private final Runnable retrySearch = () -> {
+        if (screen == Screen.SERVERS && !searching) startDiscovery(false);
+    };
 
     private DlnaServer findOnline(String udn) {
         if (udn == null || udn.isBlank()) return null;
@@ -696,6 +712,11 @@ public final class MainActivity extends Activity {
     }
 
     private void renderServers(List<DlnaServer> servers, boolean searching) {
+        // Al redibujar se conserva la fila que tenía el foco.
+        int focusedIndex = -1;
+        for (int i = 0; i < serversList.getChildCount(); i++) {
+            if (serversList.getChildAt(i).hasFocus()) focusedIndex = i;
+        }
         serversList.removeAllViews();
         for (DlnaServer server : servers) {
             serversList.addView(serverRow(server.getFriendlyName(), server.subtitle(), true,
@@ -715,12 +736,29 @@ public final class MainActivity extends Activity {
             }));
         }
         if (serversList.getChildCount() > 0) {
+            int target = focusedIndex < 0
+                    ? 0
+                    : Math.min(focusedIndex, serversList.getChildCount() - 1);
             serversList.post(() -> {
-                View first = serversList.getChildAt(0);
-                if (first != null) first.requestFocus();
+                View row = serversList.getChildAt(target);
+                if (row != null) row.requestFocus();
             });
         }
         showScreen(Screen.SERVERS);
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (!isDebuggable()) return;
+        String url = intent.getStringExtra(EXTRA_DEBUG_SERVER_URL);
+        if (url == null) return;
+        if (!url.equals(debugUrl)) {
+            debugUrl = url;
+            debugRegistered = false;
+        }
+        startDiscovery(false);
     }
 
     private View serverRow(String name, String subtitle, boolean online, Runnable onSelect) {
@@ -728,6 +766,8 @@ public final class MainActivity extends Activity {
         row.setOrientation(LinearLayout.VERTICAL);
         row.setFocusable(true);
         row.setClipChildren(false);
+        // Ancho fijo de columna: el nombre con foco crece sin cortarse ni tapar el punto.
+        row.setMinimumWidth(TvUi.dp(this, 620));
         LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -1025,7 +1065,8 @@ public final class MainActivity extends Activity {
         row.setOnClickListener(view -> action.run());
         row.setOnFocusChangeListener((view, focused) -> {
             TvUi.setFocusedText(label, focused);
-            label.setTextColor(focused ? TvUi.WHITE : (open ? TvUi.WHITE : TvUi.INK_2));
+            // Sin foco el texto va al 62 %; la carpeta abierta se marca con el punto verde.
+            label.setTextColor(focused ? TvUi.WHITE : TvUi.INK_2);
             if (focused) TvUi.underline(focusLine, label, root, this);
             else TvUi.hide(focusLine);
         });
