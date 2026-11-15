@@ -144,17 +144,56 @@ final class TvUi {
                 hide(mover);
                 return;
             }
-            int[] at = new int[2];
             int[] origin = new int[2];
-            target.getLocationInWindow(at);
             host.getLocationInWindow(origin);
             int pad = dp(context, 6);
-            float x = at[0] - origin[0] - pad;
-            float y = at[1] - origin[1] - pad;
-            setSize(mover, target.getWidth() + pad * 2, target.getHeight() + pad * 2);
+            // El marco se calcula con la tarjeta ya crecida: la animación de foco (escala y subida)
+            // recién empieza cuando se mide, y medir la posición actual dejaba el marco corrido.
+            float[] box = finalBox(target, context);
+            float x = box[0] - origin[0] - pad;
+            float y = box[1] - origin[1] - pad;
+            setSize(mover, Math.round(box[2]) + pad * 2, Math.round(box[3]) + pad * 2);
             travel(mover, x, y);
             mover.setAlpha(1f);
         });
+    }
+
+    /**
+     * Rectángulo final {x, y, ancho, alto} en la ventana de {@code target}. Si está dentro de una
+     * tarjeta de la grilla (hija directa de un RecyclerView), se aplica la transformación de foco
+     * de la tarjeta (escala {@link VideoAdapter#FOCUS_SCALE} desde su pivote y subida
+     * {@link VideoAdapter#FOCUS_LIFT_DP}) sin esperar a que termine la animación.
+     */
+    private static float[] finalBox(View target, Context context) {
+        View card = target;
+        while (card.getParent() instanceof View
+                && !(card.getParent() instanceof androidx.recyclerview.widget.RecyclerView)) {
+            card = (View) card.getParent();
+        }
+        if (!(card.getParent() instanceof androidx.recyclerview.widget.RecyclerView)) {
+            int[] at = new int[2];
+            target.getLocationInWindow(at);
+            return new float[]{at[0], at[1], target.getWidth(), target.getHeight()};
+        }
+        // Posición de la miniatura dentro de la tarjeta, sin transformaciones.
+        float fx = 0f;
+        float fy = 0f;
+        for (View v = target; v != card; v = (View) v.getParent()) {
+            fx += v.getLeft();
+            fy += v.getTop();
+        }
+        // Posición de la tarjeta sin transformaciones: la del RecyclerView más su left/top.
+        int[] parentAt = new int[2];
+        ((View) card.getParent()).getLocationInWindow(parentAt);
+        float cardX = parentAt[0] + card.getLeft();
+        float cardY = parentAt[1] + card.getTop();
+        float s = VideoAdapter.FOCUS_SCALE;
+        float px = card.getPivotX();
+        float py = card.getPivotY();
+        float lift = dp(context, VideoAdapter.FOCUS_LIFT_DP);
+        float x = cardX + px + (fx - px) * s;
+        float y = cardY + py + (fy - py) * s - lift;
+        return new float[]{x, y, target.getWidth() * s, target.getHeight() * s};
     }
 
     /**

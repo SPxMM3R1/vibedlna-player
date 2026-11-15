@@ -443,6 +443,21 @@ public final class MainActivity extends Activity {
         grid.setPadding(0, TvUi.dp(this, 16), 0, TvUi.dp(this, 24));
         grid.setItemAnimator(null);
         grid.setAdapter(adapter);
+        // El marco blanco se mide al recibir el foco, pero la grilla puede desplazarse después
+        // para mostrar la fila entera: al terminar el desplazamiento se vuelve a ubicar.
+        grid.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrollStateChanged(@NonNull RecyclerView view, int state) {
+                if (state != RecyclerView.SCROLL_STATE_IDLE || screen != Screen.LIBRARY) return;
+                View focused = view.getFocusedChild();
+                if (focused == null) return;
+                RecyclerView.ViewHolder holder = view.getChildViewHolder(focused);
+                if (holder instanceof VideoAdapter.VideoHolder) {
+                    TvUi.ring(focusRing, ((VideoAdapter.VideoHolder) holder).thumbFrame, root,
+                            MainActivity.this);
+                }
+            }
+        });
         grid.addItemDecoration(new RecyclerView.ItemDecoration() {
             @Override
             public void getItemOffsets(@NonNull Rect outRect, @NonNull View view,
