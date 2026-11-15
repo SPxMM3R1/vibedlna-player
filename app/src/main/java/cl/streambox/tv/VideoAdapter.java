@@ -35,8 +35,8 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
     static final int CARD_WIDTH_DP = CardLayoutMath.CARD_WIDTH_DP;
     static final int THUMB_HEIGHT_DP = CardLayoutMath.THUMB_HEIGHT_DP;
     /** Crecimiento y subida de la tarjeta con foco; el marco de foco usa los mismos valores. */
-    static final float FOCUS_SCALE = 1.06f;
-    static final int FOCUS_LIFT_DP = 4;
+    static final float FOCUS_SCALE = 1.04f;
+    static final int FOCUS_LIFT_DP = 2;
 
     private final List<VideoItem> entries = new ArrayList<>();
     private final ThumbnailRepository thumbnails;

@@ -146,7 +146,7 @@ final class TvUi {
             }
             int[] origin = new int[2];
             host.getLocationInWindow(origin);
-            int pad = dp(context, 6);
+            int pad = dp(context, 4);
             // El marco se calcula con la tarjeta ya crecida: la animación de foco (escala y subida)
             // recién empieza cuando se mide, y medir la posición actual dejaba el marco corrido.
             float[] box = finalBox(target, context);
