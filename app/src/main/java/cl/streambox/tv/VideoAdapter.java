@@ -217,8 +217,20 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
                     .start();
             if (focused) listener.onTileFocused(entry, holder.thumbFrame);
         });
-        holder.name.setTextColor(TvUi.INK_2);
-        holder.name.setTypeface(null, Typeface.NORMAL);
+        // Una tarjeta con foco que se vuelve a enlazar sigue con su negrita y su color.
+        boolean focused = holder.itemView.hasFocus();
+        holder.name.setTextColor(focused ? TvUi.WHITE : TvUi.INK_2);
+        holder.name.setTypeface(null, focused ? Typeface.BOLD : Typeface.NORMAL);
+    }
+
+    /**
+     * Repite el camino de foco de una tarjeta (negrita, escala, marco y video de fondo). Sirve
+     * al restaurar el foco: si el marco se calculó antes del layout, así se vuelve a calcular.
+     */
+    static void replayFocus(View itemView) {
+        if (itemView == null || !itemView.hasFocus()) return;
+        View.OnFocusChangeListener listener = itemView.getOnFocusChangeListener();
+        if (listener != null) listener.onFocusChange(itemView, true);
     }
 
     @Override

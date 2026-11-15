@@ -118,7 +118,8 @@ final class TvUi {
         // Se calcula después del siguiente layout: al recibir el foco la vista puede
         // aún no tener posición y la línea quedaría en (0, 0).
         target.post(() -> {
-            if (!target.isAttachedToWindow()) {
+            // Si el foco ya salió de la fila, una línea pendiente no debe volver a mostrarse.
+            if (!target.isAttachedToWindow() || !hasFocusWithin(target)) {
                 hide(mover);
                 return;
             }
@@ -139,7 +140,7 @@ final class TvUi {
         target.post(() -> {
             // Una tarjeta ya quitada de la grilla no tiene posición: el marco se esconde en vez
             // de quedar en (0, 0), sobre el encabezado.
-            if (!target.isAttachedToWindow()) {
+            if (!target.isAttachedToWindow() || !hasFocusWithin(target)) {
                 hide(mover);
                 return;
             }
@@ -175,6 +176,16 @@ final class TvUi {
 
     static void hide(View mover) {
         mover.setAlpha(0f);
+    }
+
+    /** True si {@code view} o uno de sus contenedores es la vista con foco. */
+    static boolean hasFocusWithin(View view) {
+        View current = view;
+        while (current != null) {
+            if (current.isFocused()) return true;
+            current = current.getParent() instanceof View ? (View) current.getParent() : null;
+        }
+        return false;
     }
 
     private static void setSize(View mover, int width, int height) {

@@ -176,7 +176,9 @@ public final class MainActivity extends Activity {
         adapter = new VideoAdapter(thumbnailRepository, resumeStore, new VideoAdapter.Listener() {
             @Override
             public void onTileFocused(VideoItem entry, View thumbFrame) {
-                if (screen != Screen.LIBRARY) return;
+                // Una tarjeta de la lista anterior (que aún se dibuja mientras se reconstruye la
+                // columna) no debe cambiar el detalle ni el marco de la carpeta nueva.
+                if (screen != Screen.LIBRARY || indexOfVideo(entry.stableKey()) < 0) return;
                 TvUi.hide(focusLine);
                 TvUi.ring(focusRing, thumbFrame, root, MainActivity.this);
                 setHero(entry);
@@ -272,7 +274,12 @@ public final class MainActivity extends Activity {
         focusRing.bringToFront();
         // Un solo foco a la vez: el marco de la tarjeta se va al salir de la grilla.
         root.getViewTreeObserver().addOnGlobalFocusChangeListener((oldFocus, newFocus) -> {
-            if (newFocus == null || grid == null || grid.findContainingViewHolder(newFocus) == null) {
+            boolean inGrid = newFocus != null && grid != null
+                    && grid.findContainingViewHolder(newFocus) != null;
+            if (inGrid) {
+                // En la grilla la línea de la columna no se queda debajo de «‹ Inicio».
+                TvUi.hide(focusLine);
+            } else {
                 TvUi.hide(focusRing);
             }
         });
@@ -428,11 +435,12 @@ public final class MainActivity extends Activity {
 
         grid = new RecyclerView(this);
         grid.setLayoutManager(new RowGridLayoutManager(this, 3));
-        // La grilla recorta en sus bordes (los títulos de una fila que sale no quedan sobre el
-        // encabezado) y deja un margen abajo: la tarjeta con foco, ya crecida, queda entera.
+        // La grilla recorta en el borde del área de contenido (los títulos de una fila que sale no
+        // quedan sobre el encabezado) y deja margen arriba y abajo: la tarjeta con foco, ya
+        // crecida y con su marco, queda entera.
         grid.setClipToPadding(true);
         grid.setClipChildren(true);
-        grid.setPadding(0, 0, 0, TvUi.dp(this, 24));
+        grid.setPadding(0, TvUi.dp(this, 16), 0, TvUi.dp(this, 24));
         grid.setItemAnimator(null);
         grid.setAdapter(adapter);
         grid.addItemDecoration(new RecyclerView.ItemDecoration() {
@@ -875,7 +883,7 @@ public final class MainActivity extends Activity {
         renderGrid();
         browseAsync(server, BrowseStack.ROOT_ID, result -> {
             if (result == null) {
-                showLibraryError();
+                showLibraryError(null);
                 return;
             }
             folders = containersSorted(result.entries);
@@ -950,7 +958,8 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private void showLibraryError() {
+    /** @param folderName carpeta que no se pudo leer; el detalle queda solo con su nombre. */
+    private void showLibraryError(String folderName) {
         folders = new ArrayList<>();
         videos = new ArrayList<>();
         libraryNotice.setVisibility(View.GONE);
@@ -959,6 +968,8 @@ public final class MainActivity extends Activity {
         gridMessage.setText("No se pudo leer la carpeta del servidor DLNA.");
         gridMessage.setVisibility(View.VISIBLE);
         renderHeader();
+        clearHero();
+        if (folderName != null) heroTitle.setText(folderName);
     }
 
     /** Carga una carpeta desde la columna: sus videos van a la grilla y, si tiene subcarpetas, a la columna. */
@@ -992,7 +1003,7 @@ public final class MainActivity extends Activity {
             if (server != currentServer) return;
             if (result == null) {
                 if (onMissing != null) onMissing.run();
-                else showLibraryError();
+                else showLibraryError(folder.getName());
                 return;
             }
             selectedFolder = folder;
@@ -1013,7 +1024,9 @@ public final class MainActivity extends Activity {
             libraryNotice.setVisibility(result.incomplete ? View.VISIBLE : View.GONE);
             renderFolders();
             renderGrid();
+            // Al llegar el resultado el detalle muestra el primer video, o el nombre de la carpeta.
             if (videos.isEmpty()) setFolderHero(folder, children.size());
+            else setHero(videos.get(0));
             if (onLoaded != null) {
                 onLoaded.run();
                 return;
@@ -1279,7 +1292,11 @@ public final class MainActivity extends Activity {
         grid.post(() -> {
             RecyclerView.ViewHolder holder = grid.findViewHolderForAdapterPosition(index);
             if (holder != null) {
-                holder.itemView.requestFocus();
+                View tile = holder.itemView;
+                tile.requestFocus();
+                // El foco puede llegar antes del layout: cuando la tarjeta ya tiene posición, se
+                // repite su camino de foco (marco y negrita), igual que un foco normal.
+                tile.post(() -> VideoAdapter.replayFocus(tile));
             } else if (attemptsLeft > 1) {
                 grid.postDelayed(() -> focusGridPosition(index, attemptsLeft - 1), 30L);
             }
@@ -1501,8 +1518,9 @@ public final class MainActivity extends Activity {
     }
 
     /**
-     * Grilla que desplaza por filas completas: al enfocar una tarjeta, su fila queda arriba del
-     * todo y no quedan títulos sueltos al borde. Si la fila ya se ve entera, no se mueve.
+     * Grilla que desplaza por filas completas: la fila de la tarjeta con foco queda alineada al
+     * borde superior del área de la grilla (el padding de arriba), sin restos de la fila anterior.
+     * Si ya está alineada, no se mueve (así el desplazamiento horizontal no salta).
      */
     private static final class RowGridLayoutManager extends GridLayoutManager {
         RowGridLayoutManager(android.content.Context context, int spanCount) {
@@ -1515,10 +1533,8 @@ public final class MainActivity extends Activity {
                                                      boolean focusedChildVisible) {
             if (parent.isComputingLayout()) return false;
             int visibleTop = parent.getPaddingTop();
-            int visibleBottom = parent.getHeight() - parent.getPaddingBottom();
             int top = getDecoratedTop(child);
-            int bottom = getDecoratedBottom(child);
-            if (top >= visibleTop && bottom <= visibleBottom) return false;
+            if (top == visibleTop) return false;
             parent.scrollBy(0, top - visibleTop);
             return true;
         }
