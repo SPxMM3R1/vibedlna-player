@@ -1,6 +1,7 @@
 package cl.streambox.tv;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
@@ -10,7 +11,6 @@ public final class CardLayoutMathTest {
         assertEquals(4, CardLayoutMath.GRID_COLUMNS);
         assertEquals(228, CardLayoutMath.CARD_WIDTH_DP);
         assertEquals(24, CardLayoutMath.COLUMN_GAP_DP);
-        assertEquals(18, CardLayoutMath.ROW_GAP_DP);
         assertEquals(984, CardLayoutMath.GRID_WIDTH_DP);
         assertEquals(252, CardLayoutMath.columnPitchDp());
     }
@@ -43,10 +43,50 @@ public final class CardLayoutMathTest {
     }
 
     @Test
+    public void gridStartsAtTheMockupPositionWithRoomForFocusGrowth() {
+        // La tarjeta empieza en x = 248; la vista de la grilla empieza antes, con margen para
+        // que la tarjeta con foco (crece 6 % a cada lado) no se corte a la izquierda.
+        assertEquals(248, CardLayoutMath.GRID_LEFT_DP);
+        assertEquals(236, CardLayoutMath.GRID_VIEW_LEFT_DP);
+        assertEquals(CardLayoutMath.GRID_LEFT_DP, CardLayoutMath.GRID_VIEW_LEFT_DP
+                + CardLayoutMath.GRID_SIDE_PAD_DP);
+        assertEquals(CardLayoutMath.GRID_WIDTH_DP + 24, CardLayoutMath.GRID_VIEW_WIDTH_DP);
+        assertTrue(CardLayoutMath.GRID_SIDE_PAD_DP >= 12);
+    }
+
+    @Test
     public void thumbnailIsSixteenByNineOfTheCardWidth() {
-        assertEquals(128, CardLayoutMath.CARD_HEIGHT_DP);
+        assertEquals(128, CardLayoutMath.THUMB_HEIGHT_DP);
         assertEquals(128, CardLayoutMath.thumbnailHeight(228));
         assertEquals(1, CardLayoutMath.thumbnailHeight(0));
+    }
+
+    @Test
+    public void cardIncludesNameAndSizeBelowTheThumbnail() {
+        assertEquals(163, CardLayoutMath.CARD_HEIGHT_DP);
+        assertEquals(177, CardLayoutMath.ROW_STRIDE_DP);
+    }
+
+    @Test
+    public void threeFullRowsFitBelowTheHeaderWithPadding() {
+        int available = CardLayoutMath.SCREEN_HEIGHT_DP - CardLayoutMath.GRID_TOP_DP;
+        int rows = 3 * (CardLayoutMath.THUMB_HEIGHT_DP + CardLayoutMath.NAME_TOP_DP
+                + CardLayoutMath.NAME_LINE_DP + CardLayoutMath.SIZE_TOP_DP
+                + CardLayoutMath.SIZE_LINE_DP + CardLayoutMath.ROW_GAP_DP);
+        assertEquals(531, rows);
+        assertTrue(rows + CardLayoutMath.GRID_TOP_PAD_DP <= available);
+        assertEquals(543, CardLayoutMath.GRID_VIEW_HEIGHT_DP);
+        assertTrue(CardLayoutMath.GRID_VIEW_HEIGHT_DP <= available);
+    }
+
+    @Test
+    public void lastVisibleRowEndsInsideTheViewAndTheFourthRowStaysOut() {
+        int pad = CardLayoutMath.GRID_TOP_PAD_DP;
+        int stride = CardLayoutMath.ROW_STRIDE_DP;
+        int thirdRowBottom = pad + 2 * stride + CardLayoutMath.CARD_HEIGHT_DP;
+        assertTrue(thirdRowBottom + CardLayoutMath.ROW_GAP_DP <= CardLayoutMath.GRID_VIEW_HEIGHT_DP);
+        int fourthRowTop = pad + 3 * stride;
+        assertTrue(fourthRowTop >= CardLayoutMath.GRID_VIEW_HEIGHT_DP);
     }
 
     @Test

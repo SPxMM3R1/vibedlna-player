@@ -57,15 +57,44 @@ final class PlaybackUiFormatter {
         return "Terminar\u00e1 a las " + value;
     }
 
+    /** Idiomas conocidos (código ISO 639 de dos o tres letras) con su nombre en español. */
+    private static final java.util.Map<String, String> LANGUAGE_NAMES = new java.util.HashMap<>();
+
+    static {
+        String[][] names = {
+                {"spa", "es", "Español"}, {"eng", "en", "Inglés"}, {"fra fre", "fr", "Francés"},
+                {"deu ger", "de", "Alemán"}, {"ita", "it", "Italiano"}, {"por", "pt", "Portugués"},
+                {"jpn", "ja", "Japonés"}, {"zho chi", "zh", "Chino"}, {"kor", "ko", "Coreano"},
+                {"rus", "ru", "Ruso"}, {"cat", "ca", "Catalán"}, {"nld dut", "nl", "Neerlandés"},
+        };
+        for (String[] row : names) {
+            for (String code : row[0].split(" ")) LANGUAGE_NAMES.put(code, row[2]);
+            LANGUAGE_NAMES.put(row[1], row[2]);
+        }
+    }
+
     /**
-     * Idioma de una pista de audio: «und» o vacío significa «Original». El código que trae la
-     * pista se muestra con mayúscula inicial («Spa»), como todos los tramos de la app.
+     * Nombre en español del idioma de una pista («spa» o «es-419» → «Español»). Si el código no
+     * se conoce, se muestra en mayúsculas («XYZ»); sin código, vacío.
+     */
+    static String languageName(String language) {
+        if (language == null) return "";
+        String value = language.trim().toLowerCase(java.util.Locale.ROOT);
+        if (value.isEmpty()) return "";
+        String primary = value.split("[-_]", 2)[0];
+        String name = LANGUAGE_NAMES.get(primary);
+        return name != null ? name : primary.toUpperCase(java.util.Locale.ROOT);
+    }
+
+    /**
+     * Idioma de una pista de audio: «und» o vacío significa «Original»; si no, el nombre en español
+     * («Español») o el código en mayúsculas.
      */
     static String audioLanguage(String language) {
         if (language == null) return "Original";
         String value = language.trim();
         if (value.isEmpty() || "und".equalsIgnoreCase(value)) return "Original";
-        return DlnaMediaFormat.capitalizeFirst(value);
+        return languageName(value);
     }
 
     /** Canales de una pista de audio: 1 = Mono, 2 = Estéreo, 6 = 5.1, 8 = 7.1, el resto «N ch». */

@@ -64,9 +64,6 @@ public final class MainActivity extends Activity {
     private static final int LIBRARY_MARGIN_DP = 48;
     /** Columna de carpetas: 168 dp desde el margen. */
     private static final int FOLDER_COLUMN_WIDTH_DP = 168;
-    /** Detalle compacto y grilla empiezan en x = 248 y la grilla baja en y = 176. */
-    private static final int GRID_LEFT_DP = 248;
-    private static final int GRID_TOP_DP = 176;
 
     private enum Screen { SERVERS, LIBRARY, DETAIL, OPTIONS }
 
@@ -444,38 +441,44 @@ public final class MainActivity extends Activity {
         heroEyebrow = TvUi.text(this, "", 9f, TvUi.INK_3, false);
         heroEyebrow.setLetterSpacing(0.2f);
         heroEyebrow.setAllCaps(true);
-        place(screenLibrary, heroEyebrow, GRID_LEFT_DP, 76, CardLayoutMath.GRID_WIDTH_DP);
+        place(screenLibrary, heroEyebrow, CardLayoutMath.GRID_LEFT_DP, 76, CardLayoutMath.GRID_WIDTH_DP);
 
         heroTitle = TvUi.text(this, "", 24f, TvUi.WHITE, true);
         heroTitle.setEllipsize(TextUtils.TruncateAt.END);
-        place(screenLibrary, heroTitle, GRID_LEFT_DP, 90, CardLayoutMath.GRID_WIDTH_DP);
+        place(screenLibrary, heroTitle, CardLayoutMath.GRID_LEFT_DP, 90, CardLayoutMath.GRID_WIDTH_DP);
 
         heroMeta = TvUi.text(this, "", 11f, TvUi.INK_2, false);
         heroMeta.setEllipsize(TextUtils.TruncateAt.END);
-        place(screenLibrary, heroMeta, GRID_LEFT_DP, 122, CardLayoutMath.GRID_WIDTH_DP);
+        place(screenLibrary, heroMeta, CardLayoutMath.GRID_LEFT_DP, 122, CardLayoutMath.GRID_WIDTH_DP);
 
         // Encabezado de la grilla («PELÍCULAS · 20 VIDEOS · POR NOMBRE») y el aviso de lectura
         // incompleta, a la derecha de la misma línea.
         gridLabel = TvUi.text(this, "", 9f, TvUi.INK_3, false);
         gridLabel.setLetterSpacing(0.2f);
-        place(screenLibrary, gridLabel, GRID_LEFT_DP, 154);
+        place(screenLibrary, gridLabel, CardLayoutMath.GRID_LEFT_DP, 154);
 
         gridMessage = TvUi.text(this, "", 13f, TvUi.INK_3, false);
-        place(screenLibrary, gridMessage, GRID_LEFT_DP, 200, CardLayoutMath.GRID_WIDTH_DP);
+        place(screenLibrary, gridMessage, CardLayoutMath.GRID_LEFT_DP, 200, CardLayoutMath.GRID_WIDTH_DP);
 
         libraryNotice = TvUi.text(this, INCOMPLETE_NOTICE, 11f, TvUi.INK_3, false);
         libraryNotice.setGravity(Gravity.END);
         libraryNotice.setVisibility(View.GONE);
-        place(screenLibrary, libraryNotice, GRID_LEFT_DP, 154, CardLayoutMath.GRID_WIDTH_DP);
+        place(screenLibrary, libraryNotice, CardLayoutMath.GRID_LEFT_DP, 154, CardLayoutMath.GRID_WIDTH_DP);
 
         grid = new RecyclerView(this);
         grid.setLayoutManager(new RowGridLayoutManager(this, CardLayoutMath.GRID_COLUMNS));
         // La grilla recorta en el borde del área de contenido (los títulos de una fila que sale no
         // quedan sobre el encabezado) y deja margen arriba y abajo: la tarjeta con foco, ya
         // crecida y con su marco, queda entera.
-        grid.setClipToPadding(true);
+        // Sin clipToPadding: la tarjeta con foco crece 6 % a los lados y sube 4 dp, y debe verse
+        // dentro del margen. El recorte vertical sale del alto de la vista (tres filas exactas).
+        grid.setClipToPadding(false);
         grid.setClipChildren(true);
-        grid.setPadding(0, TvUi.dp(this, 16), 0, TvUi.dp(this, 24));
+        grid.setPadding(
+                TvUi.dp(this, CardLayoutMath.GRID_SIDE_PAD_DP),
+                TvUi.dp(this, CardLayoutMath.GRID_TOP_PAD_DP),
+                TvUi.dp(this, CardLayoutMath.GRID_SIDE_PAD_DP),
+                0);
         grid.setItemAnimator(null);
         grid.setAdapter(adapter);
         // El marco blanco se mide al recibir el foco, pero la grilla puede desplazarse después
@@ -513,13 +516,12 @@ public final class MainActivity extends Activity {
             }
         });
         FrameLayout.LayoutParams gridParams = new FrameLayout.LayoutParams(
-                TvUi.dp(this, CardLayoutMath.GRID_WIDTH_DP),
-                FrameLayout.LayoutParams.MATCH_PARENT,
+                TvUi.dp(this, CardLayoutMath.GRID_VIEW_WIDTH_DP),
+                TvUi.dp(this, CardLayoutMath.GRID_VIEW_HEIGHT_DP),
                 Gravity.TOP | Gravity.START
         );
-        gridParams.leftMargin = TvUi.dp(this, GRID_LEFT_DP);
-        gridParams.topMargin = TvUi.dp(this, GRID_TOP_DP);
-        // Hasta el borde inferior: el margen de abajo (padding) deja entera la tarjeta crecida.
+        gridParams.leftMargin = TvUi.dp(this, CardLayoutMath.GRID_VIEW_LEFT_DP);
+        gridParams.topMargin = TvUi.dp(this, CardLayoutMath.GRID_TOP_DP);
         grid.setLayoutParams(gridParams);
         screenLibrary.addView(grid);
     }
@@ -1264,7 +1266,12 @@ public final class MainActivity extends Activity {
         TextView label = TvUi.text(this, name, up ? 12.5f : 14.5f,
                 open ? TvUi.WHITE : TvUi.INK_2, open);
         label.setEllipsize(TextUtils.TruncateAt.END);
-        row.addView(label, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        // El nombre mide lo que dice (y se corta con «…» si no cabe): el punto y el contador van
+        // pegados a él, a 7 dp, no al borde de la columna.
+        row.addView(label, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
         if (open) {
             View dot = new View(this);
             GradientDrawable shape = new GradientDrawable();
@@ -1275,7 +1282,7 @@ public final class MainActivity extends Activity {
                     TvUi.dp(this, 5),
                     TvUi.dp(this, 5)
             );
-            dotParams.leftMargin = TvUi.dp(this, 8);
+            dotParams.leftMargin = TvUi.dp(this, 7);
             row.addView(dot, dotParams);
         }
         if (count != null) {
@@ -1284,7 +1291,7 @@ public final class MainActivity extends Activity {
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
             );
-            countParams.leftMargin = TvUi.dp(this, 8);
+            countParams.leftMargin = TvUi.dp(this, 7);
             row.addView(countView, countParams);
         }
         TvUi.clickable(row, action);
@@ -1481,7 +1488,7 @@ public final class MainActivity extends Activity {
 
         detailFacts.removeAllViews();
         addFact(detailFacts, "Imagen", DlnaMediaFormat.qualityLabel(media.height()), 0);
-        addFact(detailFacts, "Formato", media.codecs, 34);
+        addFact(detailFacts, "Formato", DlnaMediaFormat.channelWords(media.codecs), 34);
         String file = DlnaMediaFormat.join(java.util.Arrays.asList(
                 DlnaMediaFormat.size(media.sizeBytes),
                 DlnaMediaFormat.mbps(media.bitrateBytesPerSecond)), " · ");
@@ -1594,9 +1601,14 @@ public final class MainActivity extends Activity {
     }
 
     /**
-     * Grilla que desplaza por filas completas: la fila de la tarjeta con foco queda alineada al
-     * borde superior del área de la grilla (el padding de arriba), sin restos de la fila anterior.
-     * Si ya está alineada, no se mueve (así el desplazamiento horizontal no salta).
+     * Grilla que desplaza por filas completas, siempre en múltiplos del alto de fila:
+     * <ul>
+     *   <li>si la tarjeta con foco está en una fila por encima de la vista, esa fila se alinea
+     *   al padding superior (queda entera, sin media fila arriba);</li>
+     *   <li>si está en una fila por debajo, la grilla baja lo justo, en filas enteras, para que
+     *   esa fila entre completa (con su separación).</li>
+     * </ul>
+     * Una fila ya visible por completo no mueve nada (el desplazamiento horizontal no salta).
      */
     private static final class RowGridLayoutManager extends GridLayoutManager {
         RowGridLayoutManager(android.content.Context context, int spanCount) {
@@ -1609,10 +1621,22 @@ public final class MainActivity extends Activity {
                                                      boolean focusedChildVisible) {
             if (parent.isComputingLayout()) return false;
             int visibleTop = parent.getPaddingTop();
+            int visibleBottom = parent.getHeight() - parent.getPaddingBottom();
             int top = getDecoratedTop(child);
-            if (top == visibleTop) return false;
-            parent.scrollBy(0, top - visibleTop);
-            return true;
+            int bottom = getDecoratedBottom(child);
+            // La altura decorada incluye la separación de la fila: es el paso de una fila a otra.
+            int stride = getDecoratedMeasuredHeight(child);
+            if (top < visibleTop) {
+                parent.scrollBy(0, top - visibleTop);
+                return true;
+            }
+            if (bottom > visibleBottom && stride > 0) {
+                int missing = bottom - visibleBottom;
+                int rows = (missing + stride - 1) / stride;
+                parent.scrollBy(0, rows * stride);
+                return true;
+            }
+            return false;
         }
     }
 

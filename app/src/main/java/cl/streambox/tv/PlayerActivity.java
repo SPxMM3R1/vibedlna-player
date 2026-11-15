@@ -297,7 +297,7 @@ public final class PlayerActivity extends Activity {
         if (!"—".equals(videoCodec)) parts.add(videoCodec);
         if (audio != null) {
             String audioCodec = PlaybackUiFormatter.friendlyCodec(audio.sampleMimeType, audio.codecs);
-            String channels = channelsLabel(audio.channelCount);
+            String channels = PlaybackUiFormatter.audioChannels(audio.channelCount);
             String audioText = ("—".equals(audioCodec) ? "" : audioCodec)
                     + (channels.isEmpty() ? "" : " " + channels);
             if (!audioText.trim().isEmpty()) parts.add(audioText.trim());
@@ -305,22 +305,6 @@ public final class PlayerActivity extends Activity {
         tech.setText(DlnaMediaFormat.join(parts, " · "));
         // El separador entre la técnica y «desde…» solo existe si hay técnica.
         techSeparator.setVisibility(parts.isEmpty() ? View.GONE : View.VISIBLE);
-    }
-
-    /** 1.0, 2.0, 5.1 o 7.1 según los canales de Media3. */
-    static String channelsLabel(int channels) {
-        switch (channels) {
-            case 1:
-                return "1.0";
-            case 2:
-                return "2.0";
-            case 6:
-                return "5.1";
-            case 8:
-                return "7.1";
-            default:
-                return channels > 0 ? channels + " ch" : "";
-        }
     }
 
     /** Muestra el OSD completo y, si el video suena, lo programa para ocultarse. */
@@ -755,7 +739,7 @@ public final class PlayerActivity extends Activity {
                 String language = format.language == null || format.language.isEmpty()
                         || "und".equalsIgnoreCase(format.language)
                         ? "Pista " + (index + 1)
-                        : DlnaMediaFormat.capitalizeFirst(format.language);
+                        : PlaybackUiFormatter.languageName(format.language);
                 text = DlnaMediaFormat.join(java.util.Arrays.asList(
                         language,
                         "—".equals(codec) ? "" : codec

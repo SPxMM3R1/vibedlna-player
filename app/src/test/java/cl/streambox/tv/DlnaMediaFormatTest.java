@@ -76,6 +76,15 @@ public final class DlnaMediaFormatTest {
     }
 
     @Test
+    public void channelWordsReplaceOnlyMonoAndStereoMarks() {
+        assertEquals("AAC Estéreo", DlnaMediaFormat.channelWords("AAC 2.0"));
+        assertEquals("AAC Mono", DlnaMediaFormat.channelWords("AAC 1.0"));
+        assertEquals("HEVC · E-AC3 5.1", DlnaMediaFormat.channelWords("HEVC · E-AC3 5.1"));
+        assertEquals("AC3 7.1", DlnaMediaFormat.channelWords("AC3 7.1"));
+        assertEquals("", DlnaMediaFormat.channelWords(""));
+    }
+
+    @Test
     public void mediaLineKeepsOnlyKnownParts() {
         MediaInfo info = new MediaInfo("3840x2160", 2_275_000L, 6L,
                 24_270_000_000L, "2024", "HEVC · E-AC3 5.1");

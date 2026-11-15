@@ -52,7 +52,9 @@ public final class PlaybackUiFormatterTest {
         assertEquals("Original", PlaybackUiFormatter.audioLanguage(""));
         assertEquals("Original", PlaybackUiFormatter.audioLanguage("   "));
         assertEquals("Original", PlaybackUiFormatter.audioLanguage(null));
-        assertEquals("Spa", PlaybackUiFormatter.audioLanguage("spa"));
+        assertEquals("Español", PlaybackUiFormatter.audioLanguage("spa"));
+        assertEquals("Español", PlaybackUiFormatter.audioLanguage("es-419"));
+        assertEquals("XYZ", PlaybackUiFormatter.audioLanguage("xyz"));
     }
 
     @Test
@@ -113,7 +115,7 @@ public final class PlaybackUiFormatterTest {
     public void audioTrackLabelJoinsLanguageCodecAndChannels() {
         assertEquals("Original · AAC · Estéreo",
                 PlaybackUiFormatter.audioTrackLabel("und", "AAC", 2));
-        assertEquals("Spa · E-AC-3 · 5.1",
+        assertEquals("Español · E-AC-3 · 5.1",
                 PlaybackUiFormatter.audioTrackLabel("spa", "E-AC-3", 6));
         assertEquals("Original · Mono",
                 PlaybackUiFormatter.audioTrackLabel(null, "—", 1));
@@ -153,5 +155,25 @@ public final class PlaybackUiFormatterTest {
                 PlaybackUiFormatter.fromLine("VibeDLNA Prueba", "192.168.3.4"));
         assertEquals("Desde VibeDLNA Prueba", PlaybackUiFormatter.fromLine("VibeDLNA Prueba", ""));
         assertEquals("", PlaybackUiFormatter.fromLine("", ""));
+    }
+
+    @Test
+    public void languageNamesAreSpanishWhenKnownAndCodeOtherwise() {
+        assertEquals("Inglés", PlaybackUiFormatter.languageName("eng"));
+        assertEquals("Francés", PlaybackUiFormatter.languageName("fre"));
+        assertEquals("Alemán", PlaybackUiFormatter.languageName("de"));
+        assertEquals("Español", PlaybackUiFormatter.languageName("ES"));
+        assertEquals("Francés", PlaybackUiFormatter.languageName("fra-CA"));
+        assertEquals("QAA", PlaybackUiFormatter.languageName("qaa"));
+        assertEquals("", PlaybackUiFormatter.languageName(""));
+        assertEquals("", PlaybackUiFormatter.languageName(null));
+    }
+
+    @Test
+    public void audioChannelWordsMatchTheTrackLabel() {
+        assertEquals("Mono", PlaybackUiFormatter.audioChannels(1));
+        assertEquals("Estéreo", PlaybackUiFormatter.audioChannels(2));
+        assertEquals("Original · AAC · Estéreo",
+                PlaybackUiFormatter.audioTrackLabel("und", "AAC", 2));
     }
 }

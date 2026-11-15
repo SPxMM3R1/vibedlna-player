@@ -33,7 +33,7 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
     }
 
     static final int CARD_WIDTH_DP = CardLayoutMath.CARD_WIDTH_DP;
-    static final int CARD_HEIGHT_DP = CardLayoutMath.CARD_HEIGHT_DP;
+    static final int THUMB_HEIGHT_DP = CardLayoutMath.THUMB_HEIGHT_DP;
     /** Crecimiento y subida de la tarjeta con foco; el marco de foco usa los mismos valores. */
     static final float FOCUS_SCALE = 1.06f;
     static final int FOCUS_LIFT_DP = 4;
@@ -92,7 +92,7 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
         frame.setBackgroundColor(TvUi.CARD_BG);
         LinearLayout.LayoutParams frameParams = new LinearLayout.LayoutParams(
                 dp(context, CARD_WIDTH_DP),
-                dp(context, CARD_HEIGHT_DP)
+                dp(context, THUMB_HEIGHT_DP)
         );
         frame.setLayoutParams(frameParams);
         frame.setClipToOutline(true);
@@ -150,22 +150,23 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
 
         tile.addView(frame);
 
-        // Nombre en una línea con «…» (mockup: 12,5 sp, 7 dp arriba) y tamaño debajo (10 sp).
+        // Nombre en una línea con «…» (12,5 sp) y tamaño debajo (10 sp). Alto fijo de línea: así
+        // las tres filas de la grilla miden lo que calcula CardLayoutMath y ninguna queda cortada.
         TextView name = TvUi.text(context, "", 12.5f, TvUi.INK_2, false);
         name.setEllipsize(android.text.TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(
                 dp(context, CARD_WIDTH_DP),
-                ViewGroup.LayoutParams.WRAP_CONTENT
+                dp(context, CardLayoutMath.NAME_LINE_DP)
         );
-        nameParams.topMargin = dp(context, 7);
+        nameParams.topMargin = dp(context, CardLayoutMath.NAME_TOP_DP);
         tile.addView(name, nameParams);
 
         TextView sub = TvUi.text(context, "", 10f, TvUi.INK_3, false);
         LinearLayout.LayoutParams subParams = new LinearLayout.LayoutParams(
                 dp(context, CARD_WIDTH_DP),
-                ViewGroup.LayoutParams.WRAP_CONTENT
+                dp(context, CardLayoutMath.SIZE_LINE_DP)
         );
-        subParams.topMargin = dp(context, 1);
+        subParams.topMargin = dp(context, CardLayoutMath.SIZE_TOP_DP);
         tile.addView(sub, subParams);
 
         return new VideoHolder(tile, frame, thumb, none, quality, duration, progress, name, sub);
@@ -212,7 +213,7 @@ final class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoHolder> 
             holder.name.setTextColor(focused ? TvUi.WHITE : TvUi.INK_2);
             holder.name.setTypeface(null, focused ? Typeface.BOLD : Typeface.NORMAL);
             view.setPivotX(view.getWidth() / 2f);
-            view.setPivotY(dp(view.getContext(), CARD_HEIGHT_DP));
+            view.setPivotY(dp(view.getContext(), THUMB_HEIGHT_DP));
             view.animate()
                     .scaleX(focused ? FOCUS_SCALE : 1f)
                     .scaleY(focused ? FOCUS_SCALE : 1f)

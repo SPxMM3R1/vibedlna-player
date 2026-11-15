@@ -138,12 +138,23 @@ final class DlnaMediaFormat {
         return head;
     }
 
+    /**
+     * Canales en palabras, como el rótulo de pistas: «2.0» → «Estéreo», «1.0» → «Mono». «5.1» y
+     * «7.1» quedan igual. Solo cambia esas dos marcas, con sus límites.
+     */
+    static String channelWords(String codecs) {
+        if (codecs == null || codecs.isEmpty()) return codecs == null ? "" : codecs;
+        return codecs
+                .replaceAll("(?<![\\d.])1\\.0(?![\\d.])", "Mono")
+                .replaceAll("(?<![\\d.])2\\.0(?![\\d.])", "Estéreo");
+    }
+
     /** Calidad · códecs · tasa · tamaño, solo con lo que exista. */
     static String mediaLine(MediaInfo info) {
         List<String> parts = new ArrayList<>();
         String quality = qualityLabel(info.height());
         if (!quality.isEmpty()) parts.add(quality);
-        if (!info.codecs.isEmpty()) parts.add(info.codecs);
+        if (!info.codecs.isEmpty()) parts.add(channelWords(info.codecs));
         String rate = mbps(info.bitrateBytesPerSecond);
         if (!rate.isEmpty()) parts.add(rate);
         String fileSize = size(info.sizeBytes);
