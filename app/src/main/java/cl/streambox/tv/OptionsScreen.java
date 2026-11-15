@@ -87,12 +87,7 @@ final class OptionsScreen {
             label.setOnClickListener(view -> {
                 show(index);
             });
-            label.setOnFocusChangeListener((view, focused) -> {
-                TvUi.setFocusedText(label, focused || index == tab);
-                if (focused && index != tab) {
-                    label.setTextColor(TvUi.INK_2);
-                }
-            });
+            label.setOnFocusChangeListener((view, focused) -> styleTab(label, index == tab, focused));
             tabViews.add(label);
             tabRow.addView(label);
         }
@@ -102,11 +97,27 @@ final class OptionsScreen {
     private void updateTabs() {
         for (int i = 0; i < tabViews.size(); i++) {
             TextView label = tabViews.get(i);
-            boolean selected = i == tab;
+            styleTab(label, i == tab, label.hasFocus());
+        }
+    }
+
+    /**
+     * La pestaña activa va siempre en blanco y negrita, tenga o no el foco. Con foco
+     * crece como cualquier texto enfocado; sin foco ni selección va al 62 %.
+     */
+    private void styleTab(TextView label, boolean selected, boolean focused) {
+        if (focused) {
+            TvUi.setFocusedText(label, true);
+        } else {
+            label.animate().scaleX(1f).scaleY(1f).setDuration(200L).start();
             label.setTextColor(selected ? TvUi.WHITE : TvUi.INK_2);
             label.setTypeface(null, selected
                     ? android.graphics.Typeface.BOLD
                     : android.graphics.Typeface.NORMAL);
+        }
+        if (selected) {
+            label.setTextColor(TvUi.WHITE);
+            label.setTypeface(null, android.graphics.Typeface.BOLD);
         }
     }
 

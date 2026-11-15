@@ -72,7 +72,7 @@
     <!-- Izquierda: eyebrow, título, barra cian con perilla, siguiente y ayuda. -->
     <LinearLayout
         android:id="@+id/player_osd"
-        android:layout_width="780dp"
+        android:layout_width="540dp"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|start"
         android:layout_marginStart="64dp"
@@ -105,8 +105,8 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="20dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:gravity="start"
+            android:orientation="vertical">
 
             <FrameLayout
                 android:id="@+id/player_bar_track"
@@ -131,9 +131,10 @@
 
             <TextView
                 android:id="@+id/player_time"
-                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="18dp"
+                android:layout_marginTop="12dp"
+                android:layout_width="520dp"
+                android:ellipsize="end"
                 android:includeFontPadding="false"
                 android:maxLines="1"
                 android:textColor="#B8C4C9"

@@ -49,6 +49,8 @@ final class DlnaDiscovery implements AutoCloseable {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Object monitor = new Object();
     private final Map<String, DlnaServer> servers = new LinkedHashMap<>();
+    /** Servidor de depuración: se guarda aparte para que ningún aviso del registro lo quite. */
+    private volatile DlnaServer debugServer;
 
     private AndroidUpnpService upnpService;
     private boolean bound;
@@ -256,15 +258,33 @@ final class DlnaDiscovery implements AutoCloseable {
         // jUPnP baja la descripción y el SCPD de cada servicio (sin SCPD no existe la
         // acción Browse y addDevice descarta el servidor) y lo deja en su registro.
         new RetrieveRemoteDescriptors(service.get(), undescribed).run();
-        RemoteDevice device = service.getRegistry().getRemoteDevice(
-                UDN.valueOf(matcher.group(1)),
-                true
-        );
+        // El registro puede tener el dispositivo antes que sus acciones: se espera a que
+        // ContentDirectory tenga Browse (el SCPD se baja en otro paso) para no descartarlo.
+        UDN udn = UDN.valueOf(matcher.group(1));
+        RemoteDevice device = null;
+        long deadline = System.currentTimeMillis() + 8_000L;
+        while (device == null && System.currentTimeMillis() < deadline) {
+            RemoteDevice candidate = service.getRegistry().getRemoteDevice(udn, true);
+            Service<?, ?> content = candidate == null ? null : candidate.findService(CONTENT_DIRECTORY);
+            if (content != null && content.getAction("Browse") != null) {
+                device = candidate;
+            } else {
+                Thread.sleep(200L);
+            }
+        }
         if (device == null) {
-            throw new IOException("jUPnP no pudo describir el servidor de depuración.");
+            RemoteDevice last = service.getRegistry().getRemoteDevice(udn, true);
+            String state = last == null
+                    ? "sin dispositivo en el registro"
+                    : "servicios=" + last.getServices().length
+                    + " contentDirectory=" + (last.findService(CONTENT_DIRECTORY) != null);
+            throw new IOException("jUPnP no cargó las acciones de ContentDirectory del servidor de depuración (" + state + ").");
         }
         // Se guarda también en la lista: no depende del aviso asíncrono del registro.
         addDevice(device);
+        synchronized (monitor) {
+            debugServer = servers.get(udn.toString());
+        }
     }
 
     private static String readText(URL url) throws IOException {
@@ -285,6 +305,7 @@ final class DlnaDiscovery implements AutoCloseable {
     private void removeDevice(Device<?, ?, ?> device) {
         String udn = device.getIdentity().getUdn().toString();
         synchronized (monitor) {
+            if (debugServer != null && udn.equals(debugServer.getUdn())) return;
             servers.remove(udn);
             monitor.notifyAll();
         }
@@ -304,6 +325,14 @@ final class DlnaDiscovery implements AutoCloseable {
         List<DlnaServer> result;
         synchronized (monitor) {
             result = new ArrayList<>(servers.values());
+            DlnaServer debug = debugServer;
+            if (debug != null) {
+                boolean listed = false;
+                for (DlnaServer server : result) {
+                    if (debug.getUdn().equals(server.getUdn())) listed = true;
+                }
+                if (!listed) result.add(debug);
+            }
         }
         Collections.sort(result, new Comparator<DlnaServer>() {
             @Override

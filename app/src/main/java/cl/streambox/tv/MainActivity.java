@@ -6,6 +6,7 @@ import android.app.Dialog;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.res.Configuration;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Rect;
 import android.graphics.Typeface;
@@ -213,6 +214,14 @@ public final class MainActivity extends Activity {
         }
         backdropB.setAlpha(0f);
 
+        // Velo oscuro al 66 % sobre el fondo ambiente (spec 02): el fondo no compite con las filas.
+        View veil = new View(this);
+        veil.setBackgroundColor(0xA8000000);
+        root.addView(veil, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+
         root.addView(scrim(new int[]{0xDB000000, 0x99000000, 0x1A000000, 0x00000000},
                 GradientDrawable.Orientation.LEFT_RIGHT));
         root.addView(scrim(new int[]{0xE6000000, 0x9E000000, 0x00000000},
@@ -376,7 +385,8 @@ public final class MainActivity extends Activity {
         folderList = new LinearLayout(this);
         folderList.setOrientation(LinearLayout.VERTICAL);
         folderList.setClipChildren(false);
-        place(screenLibrary, folderList, 64, 150);
+        // Ancho fijo: el texto con foco crece en negrita y no debe cortarse en el borde.
+        place(screenLibrary, folderList, 64, 150, 340);
 
         heroEyebrow = TvUi.text(this, "", 12f, 0x99FFFFFF, false);
         heroEyebrow.setLetterSpacing(0.2f);
@@ -620,10 +630,9 @@ public final class MainActivity extends Activity {
         screenLibrary.setVisibility(next == Screen.LIBRARY ? View.VISIBLE : View.GONE);
         screenDetail.setVisibility(next == Screen.DETAIL ? View.VISIBLE : View.GONE);
         screenOptions.setVisibility(next == Screen.OPTIONS ? View.VISIBLE : View.GONE);
-        if (next != Screen.OPTIONS) {
-            TvUi.hide(focusLine);
-            TvUi.hide(focusRing);
-        }
+        // Opciones es pantalla completa: ni línea ni marco de la biblioteca quedan detrás.
+        TvUi.hide(focusLine);
+        TvUi.hide(focusRing);
         if (next == Screen.SERVERS) {
             mainHandler.removeCallbacks(spinnerTick);
             if (serversSpinner.getVisibility() == View.VISIBLE) mainHandler.post(spinnerTick);
@@ -839,13 +848,20 @@ public final class MainActivity extends Activity {
             renderFolders();
             String savedId = library.getContainerId();
             if (savedId != null && !savedId.isBlank() && !BrowseStack.ROOT_ID.equals(savedId)) {
-                // Se restaura como una apertura: si tiene subcarpetas, la columna las muestra.
-                selectFolder(VideoItem.container(
+                VideoItem saved = VideoItem.container(
                         server.getUdn(),
                         savedId,
-                        BrowseStack.ROOT_ID,
+                        library.getParentId(),
                         library.getContainerName()
-                ), true, true);
+                );
+                String parentId = library.getParentId();
+                if (BrowseStack.ROOT_ID.equals(parentId) || parentId.isBlank()) {
+                    // La carpeta guardada está en la raíz: su columna ya es la que se muestra.
+                    selectFolder(saved, false, false);
+                } else {
+                    // Está más adentro: se abre su nivel padre (con sus carpetas) y luego ella.
+                    openParentThenFolder(server, parentId, library.getParentName(), saved);
+                }
             } else if (!folders.isEmpty()) {
                 // Al entrar se abre la primera carpeta; si solo tiene subcarpetas, la primera de ellas.
                 selectFolder(folders.get(0), true, true);
@@ -854,6 +870,24 @@ public final class MainActivity extends Activity {
                 videos = new ArrayList<>();
                 renderGrid();
             }
+        });
+    }
+
+    /** Restaura una carpeta que está dentro de otra: la columna muestra su padre y se abre la carpeta. */
+    private void openParentThenFolder(DlnaServer server, String parentId, String parentName,
+                                      VideoItem saved) {
+        browseAsync(server, parentId, result -> {
+            if (server != currentServer) return;
+            if (result == null) {
+                showLibraryError();
+                return;
+            }
+            folders = containersSorted(result.entries);
+            levels.reset();
+            levels.push(parentId, parentName);
+            folderListStack.clear();
+            renderFolders();
+            selectFolder(saved, false, false);
         });
     }
 
@@ -886,7 +920,9 @@ public final class MainActivity extends Activity {
                 return;
             }
             selectedFolder = folder;
-            library.selectContainer(folder.getId(), folder.getName());
+            // El nivel actual es el padre de la carpeta elegida (antes de abrir sus subcarpetas).
+            library.selectContainer(folder.getId(), folder.getName(),
+                    levels.top().id, levels.top().name);
             List<VideoItem> children = containersSorted(result.entries);
             if (descend && !children.isEmpty()) {
                 folderListStack.add(new ArrayList<>(folders));
@@ -894,8 +930,9 @@ public final class MainActivity extends Activity {
                 folders = children;
                 focusFolderRow(null);
             }
-            renderFolders();
+            // Primero los videos: la columna cuenta la carpeta abierta con ellos.
             videos = arrange(result.entries);
+            renderFolders();
             adapter.submit(videos);
             renderGrid();
             renderHeader();
@@ -1143,6 +1180,18 @@ public final class MainActivity extends Activity {
         showBackdrop(entry);
     }
 
+    /**
+     * Fondo ambiente: reduce la miniatura 16 veces y la vuelve a ampliar. Así se pierde
+     * el detalle y queda como luz de fondo, no como imagen nítida a pantalla completa.
+     */
+    private static Bitmap ambient(Bitmap source) {
+        if (source == null || source.getWidth() < 2 || source.getHeight() < 2) return source;
+        int smallWidth = Math.max(1, source.getWidth() / 16);
+        int smallHeight = Math.max(1, source.getHeight() / 16);
+        Bitmap small = Bitmap.createScaledBitmap(source, smallWidth, smallHeight, true);
+        return Bitmap.createScaledBitmap(small, source.getWidth(), source.getHeight(), true);
+    }
+
     /** Fondo: la miniatura del video marcado con cruce de 500 ms, o un degradado si no hay. */
     private void showBackdrop(VideoItem entry) {
         String token = entry.stableKey() + ":" + backdropFlip;
@@ -1152,7 +1201,7 @@ public final class MainActivity extends Activity {
             // Cruce: la capa oculta recibe la imagen y la visible se desvanece.
             ImageView incoming = backdropFlip % 2 == 0 ? backdropA : backdropB;
             ImageView outgoing = incoming == backdropA ? backdropB : backdropA;
-            incoming.setImageBitmap(bitmap);
+            incoming.setImageBitmap(ambient(bitmap));
             incoming.setBackground(bitmap == null ? TvUi.gradientFor(entry.getName()) : null);
             incoming.animate().alpha(1f).setDuration(500L).start();
             outgoing.animate().alpha(0f).setDuration(500L).start();
@@ -1357,6 +1406,19 @@ public final class MainActivity extends Activity {
     @Override
     @SuppressLint("GestureBackNavigation")
     public boolean dispatchKeyEvent(KeyEvent event) {
+        // ◀ desde la primera columna de la grilla vuelve a la carpeta abierta (punto verde).
+        if (event.getAction() == KeyEvent.ACTION_DOWN
+                && event.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT
+                && screen == Screen.LIBRARY && selectedFolder != null) {
+            View focused = getCurrentFocus();
+            RecyclerView.ViewHolder holder = focused == null
+                    ? null
+                    : grid.findContainingViewHolder(focused);
+            if (holder != null && holder.getBindingAdapterPosition() % 3 == 0) {
+                focusFolderRow(selectedFolder.getId());
+                return true;
+            }
+        }
         if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
             int keyCode = event.getKeyCode();
             if (keyCode == KeyEvent.KEYCODE_BACK) {

@@ -40,6 +40,8 @@ public final class DlnaMediaFormatTest {
     public void formatsRemainingTimeInHoursOrMinutes() {
         assertEquals("1 h 33 min", DlnaMediaFormat.remaining(5_580_000L));
         assertEquals("45 min", DlnaMediaFormat.remaining(2_700_000L));
+        assertEquals("17 s", DlnaMediaFormat.remaining(17_000L));
+        assertEquals("0 s", DlnaMediaFormat.remaining(0L));
     }
 
     @Test

@@ -645,8 +645,8 @@ public final class PlayerActivity extends Activity {
         long duration = playbackDuration();
         long position = Math.max(0L, player.getCurrentPosition());
         long savedAt = System.currentTimeMillis();
-        String key = resumeKey;
-        resumeExecutor.execute(() -> resumeStore.save(key, position, duration, savedAt));
+        // Síncrono: al volver, la biblioteca lee el avance en onResume y no debe ir detrás de un hilo.
+        resumeStore.save(resumeKey, position, duration, savedAt);
     }
 
     @Override

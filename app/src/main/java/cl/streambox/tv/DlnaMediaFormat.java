@@ -79,7 +79,12 @@ final class DlnaMediaFormat {
 
     /** «1 h 33 min» o «45 min». */
     static String remaining(long milliseconds) {
-        long minutes = (Math.max(0L, milliseconds) + 30_000L) / 60_000L;
+        long millis = Math.max(0L, milliseconds);
+        if (millis < 60_000L) {
+            // Bajo un minuto se dan segundos: «quedan 17 s».
+            return ((millis + 999L) / 1_000L) + " s";
+        }
+        long minutes = (millis + 30_000L) / 60_000L;
         if (minutes >= 60L) {
             return String.format(Locale.ROOT, "%d h %d min", minutes / 60L, minutes % 60L);
         }

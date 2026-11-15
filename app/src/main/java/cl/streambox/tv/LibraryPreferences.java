@@ -9,6 +9,8 @@ final class LibraryPreferences {
     private static final String KEY_SERVER_NAME = "server_name";
     private static final String KEY_CONTAINER_ID = "container_id";
     private static final String KEY_CONTAINER_NAME = "container_name";
+    private static final String KEY_PARENT_ID = "parent_id";
+    private static final String KEY_PARENT_NAME = "parent_name";
 
     private final SharedPreferences preferences;
 
@@ -41,10 +43,21 @@ final class LibraryPreferences {
                 .apply();
     }
 
-    void selectContainer(String id, String name) {
+    /** Carpeta abierta y el nivel donde está, para restaurar la columna al volver a entrar. */
+    void selectContainer(String id, String name, String parentId, String parentName) {
         preferences.edit()
                 .putString(KEY_CONTAINER_ID, id)
                 .putString(KEY_CONTAINER_NAME, name)
+                .putString(KEY_PARENT_ID, parentId == null ? "0" : parentId)
+                .putString(KEY_PARENT_NAME, parentName == null ? "Inicio" : parentName)
                 .apply();
+    }
+
+    String getParentId() {
+        return preferences.getString(KEY_PARENT_ID, "0");
+    }
+
+    String getParentName() {
+        return preferences.getString(KEY_PARENT_NAME, "Inicio");
     }
 }
