@@ -100,6 +100,13 @@ public final class MainActivity extends Activity {
     private volatile String debugUrl;
     private volatile boolean debugRegistered;
     private boolean searching;
+    /**
+     * Android cerró la biblioteca mientras se veía un video (falta de memoria en la TV) y la
+     * recreó al volver: se vuelve directo a la carpeta, sin pasar por la lista de servidores.
+     */
+    private boolean returningToLibrary;
+    private static final String STATE_IN_LIBRARY = "in_library";
+    private static final String STATE_PLAYING_KEY = "playing_key";
     private int discoveryGeneration;
     private int browseGeneration;
     private int backdropFlip;
@@ -201,7 +208,20 @@ public final class MainActivity extends Activity {
         }
         appUpdater = new AppUpdater(this, updateExecutor, mainHandler);
         appUpdater.checkForUpdates();
+        if (savedInstanceState != null && savedInstanceState.getBoolean(STATE_IN_LIBRARY, false)) {
+            returningToLibrary = true;
+            String key = savedInstanceState.getString(STATE_PLAYING_KEY, "");
+            playingKey = key == null ? "" : key;
+            if (!playingKey.isEmpty()) pendingFocusKey = playingKey;
+        }
         discoverServers(true);
+    }
+
+    @Override
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        outState.putBoolean(STATE_IN_LIBRARY, screen == Screen.LIBRARY || returningToLibrary);
+        outState.putString(STATE_PLAYING_KEY, playingKey);
     }
 
     // ---------------------------------------------------------------- construcción
@@ -709,7 +729,14 @@ public final class MainActivity extends Activity {
         int generation = ++discoveryGeneration;
         searching = true;
         mainHandler.removeCallbacks(retrySearch);
-        showScreen(Screen.SERVERS);
+        if (returningToLibrary) {
+            // Se espera al servidor sin mostrar la lista: la biblioteca dice que está volviendo.
+            showScreen(Screen.LIBRARY);
+            gridMessage.setText("Volviendo a la carpeta…");
+            gridMessage.setVisibility(View.VISIBLE);
+        } else {
+            showScreen(Screen.SERVERS);
+        }
         setLoadingServers(true);
         String url = debugUrl;
         boolean registerUrl = url != null && !debugRegistered;
@@ -736,6 +763,15 @@ public final class MainActivity extends Activity {
                 long now = System.currentTimeMillis();
                 for (DlnaServer server : online) settings.markSeen(server.getUdn(), now);
                 DlnaServer saved = findOnline(library.getServerUdn());
+                if (returningToLibrary) {
+                    returningToLibrary = false;
+                    if (saved != null) {
+                        enterServer(saved);
+                        return;
+                    }
+                    // El servidor ya no está: se muestra la lista, como al abrir la app.
+                    showScreen(Screen.SERVERS);
+                }
                 if (automatic && online.size() == 1 && saved != null
                         && settings.openAtLastServer()) {
                     enterServer(saved);
@@ -1048,6 +1084,13 @@ public final class MainActivity extends Activity {
             }
             if (autoOpen && videos.isEmpty() && !children.isEmpty()) {
                 selectFolder(children.get(0), true, true);
+                return;
+            }
+            // Al volver del reproductor con la biblioteca recreada, el foco va al video que se veía.
+            if (pendingFocusKey != null && indexOfVideo(pendingFocusKey) >= 0) {
+                String key = pendingFocusKey;
+                pendingFocusKey = null;
+                focusGridEntry(key);
                 return;
             }
             if (autoOpen) focusLibraryEntry();
@@ -1741,9 +1784,13 @@ public final class MainActivity extends Activity {
         // tarjeta pendiente (al volver del reproductor), el foco vuelve a ella.
         TvUi.hide(focusRing);
         adapter.refresh();
+        // Si la carpeta todavía no cargó (biblioteca recreada), la tarjeta pendiente se enfoca
+        // cuando llegue la carpeta (selectFolder), así que no se descarta aquí.
         String key = pendingFocusKey;
-        pendingFocusKey = null;
-        if (key != null && screen == Screen.LIBRARY) focusGridEntry(key);
+        if (key != null && screen == Screen.LIBRARY && indexOfVideo(key) >= 0) {
+            pendingFocusKey = null;
+            focusGridEntry(key);
+        }
         if (appUpdater != null) appUpdater.onHostResume();
         enterImmersiveMode();
     }
