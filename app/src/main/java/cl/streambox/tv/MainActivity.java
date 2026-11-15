@@ -855,12 +855,20 @@ public final class MainActivity extends Activity {
                         library.getContainerName()
                 );
                 String parentId = library.getParentId();
+                // Si la carpeta guardada ya no existe (el PC comparte otra carpeta, o se borró),
+                // se olvida y se entra de nuevo desde la raíz, en vez de mostrar el error.
+                Runnable forget = () -> {
+                    if (server != currentServer) return;
+                    Log.i(TAG, "La carpeta guardada " + savedId + " ya no está en el servidor: se vuelve a la raíz");
+                    library.forgetContainer();
+                    enterServer(server);
+                };
                 if (BrowseStack.ROOT_ID.equals(parentId) || parentId.isBlank()) {
                     // La carpeta guardada está en la raíz: su columna ya es la que se muestra.
-                    selectFolder(saved, false, false);
+                    selectFolder(saved, false, false, forget);
                 } else {
                     // Está más adentro: se abre su nivel padre (con sus carpetas) y luego ella.
-                    openParentThenFolder(server, parentId, library.getParentName(), saved);
+                    openParentThenFolder(server, parentId, library.getParentName(), saved, forget);
                 }
             } else if (!folders.isEmpty()) {
                 // Al entrar se abre la primera carpeta; si solo tiene subcarpetas, la primera de ellas.
@@ -875,11 +883,11 @@ public final class MainActivity extends Activity {
 
     /** Restaura una carpeta que está dentro de otra: la columna muestra su padre y se abre la carpeta. */
     private void openParentThenFolder(DlnaServer server, String parentId, String parentName,
-                                      VideoItem saved) {
+                                      VideoItem saved, Runnable onMissing) {
         browseAsync(server, parentId, result -> {
             if (server != currentServer) return;
             if (result == null) {
-                showLibraryError();
+                onMissing.run();
                 return;
             }
             folders = containersSorted(result.entries);
@@ -887,7 +895,7 @@ public final class MainActivity extends Activity {
             levels.push(parentId, parentName);
             folderListStack.clear();
             renderFolders();
-            selectFolder(saved, false, false);
+            selectFolder(saved, false, false, onMissing);
         });
     }
 
@@ -911,12 +919,18 @@ public final class MainActivity extends Activity {
      *                 abre su primera subcarpeta para que la grilla no quede vacía.
      */
     private void selectFolder(VideoItem folder, boolean descend, boolean autoOpen) {
+        selectFolder(folder, descend, autoOpen, null);
+    }
+
+    /** @param onMissing si no es null, se llama en vez de mostrar el error cuando la carpeta no se puede leer. */
+    private void selectFolder(VideoItem folder, boolean descend, boolean autoOpen, Runnable onMissing) {
         DlnaServer server = currentServer;
         if (server == null) return;
         browseAsync(server, folder.getId(), result -> {
             if (server != currentServer) return;
             if (result == null) {
-                showLibraryError();
+                if (onMissing != null) onMissing.run();
+                else showLibraryError();
                 return;
             }
             selectedFolder = folder;

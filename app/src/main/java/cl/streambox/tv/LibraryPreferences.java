@@ -53,6 +53,19 @@ final class LibraryPreferences {
                 .apply();
     }
 
+    /**
+     * Olvida la carpeta guardada (vuelve a la raíz). Se usa cuando la carpeta ya no existe en el
+     * servidor, por ejemplo porque el PC ahora comparte otra carpeta.
+     */
+    void forgetContainer() {
+        preferences.edit()
+                .putString(KEY_CONTAINER_ID, "0")
+                .putString(KEY_CONTAINER_NAME, "Inicio")
+                .putString(KEY_PARENT_ID, "0")
+                .putString(KEY_PARENT_NAME, "Inicio")
+                .apply();
+    }
+
     String getParentId() {
         return preferences.getString(KEY_PARENT_ID, "0");
     }
