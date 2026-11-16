@@ -147,6 +147,8 @@ public final class MainActivity extends Activity {
     private View menuRow;
     /** Aviso «¿Salir de VibeDLNA Player?»: mismo panel de vidrio que el menú, centrado. */
     private FrameLayout screenExit;
+    /** La tecla Atrás se bajó y su «soltar» aún no llega (ver {@link #onBackInvoked}). */
+    private boolean backKeyDown;
     private LinearLayout exitList;
     private final List<View> exitRows = new ArrayList<>();
     private final List<Runnable> exitActions = new ArrayList<>();
@@ -868,6 +870,8 @@ public final class MainActivity extends Activity {
         row.addView(icon, new LinearLayout.LayoutParams(TvUi.dp(this, 14), TvUi.dp(this, 14)));
 
         TextView label = TvUi.text(this, "Menú", 12.5f, TvUi.INK_3, false);
+        // Holgura a la derecha: en negrita y crecido 7 % con el foco, el texto se cortaba («Menú»).
+        label.setPadding(0, 0, TvUi.dp(this, 8), 0);
         LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -2065,6 +2069,9 @@ public final class MainActivity extends Activity {
     @Override
     @SuppressLint("GestureBackNavigation")
     public boolean dispatchKeyEvent(KeyEvent event) {
+        if (event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
+            backKeyDown = event.getAction() == KeyEvent.ACTION_DOWN;
+        }
         if (exitOpen && handleExitKey(event)) return true;
         if (menuOpen && handleMenuKey(event)) return true;
         // ◀ desde la primera columna de la grilla vuelve a la carpeta abierta.
@@ -2079,6 +2086,11 @@ public final class MainActivity extends Activity {
                 focusFolderRow(selectedFolder.getId());
                 return true;
             }
+        }
+        // Atrás se atiende al bajar la tecla; al soltarla se consume también, o el sistema la
+        // convierte en OnBackInvoked y la acción se repetía (el panel de salida se abría y cerraba).
+        if (event.getKeyCode() == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) {
+            return true;
         }
         if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
             int keyCode = event.getKeyCode();
@@ -2100,9 +2112,26 @@ public final class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                     OnBackInvokedDispatcher.PRIORITY_DEFAULT,
-                    this::handleBackAction
+                    this::onBackInvoked
             );
         }
+    }
+
+    /**
+     * Desde Android 13 la tecla Atrás, al soltarse, llega aquí y no a {@link #dispatchKeyEvent}.
+     * Si la bajada ya pasó por dispatchKeyEvent, esto es solo el «soltar»: lo reciben el aviso de
+     * salida y el menú (que cierran al soltar) y nada más; antes la acción se repetía y el aviso
+     * se abría y cerraba en el mismo toque. Sin bajada previa es el gesto de volver.
+     */
+    private void onBackInvoked() {
+        if (!backKeyDown) {
+            handleBackAction();
+            return;
+        }
+        backKeyDown = false;
+        KeyEvent up = new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK);
+        if (exitOpen) handleExitKey(up);
+        else if (menuOpen) handleMenuKey(up);
     }
 
     private void handleBackAction() {
