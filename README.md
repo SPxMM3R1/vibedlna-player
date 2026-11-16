@@ -37,7 +37,9 @@ Biblioteca:
   muestra con el aviso «No se pudo leer todo: faltan algunos elementos».
 - `OK` en un video: si tiene avance guardado, abre Detalle (reanudar o desde
   el inicio); si no, reproduce desde el inicio.
-- `Atrás`: subir un nivel de carpetas o confirmar la salida en la raíz.
+- `Atrás`: subir un nivel de carpetas o, en la raíz, abrir el aviso «¿Salir de
+  VibeDLNA Player?»: `▲`/`▼` y `OK` eligen entre «Seguir explorando» y «Salir»
+  (el foco arranca en «Salir»); `Atrás` equivale a «Seguir explorando».
 - Abajo de la columna, «≡ Menú»: `OK` sobre él (o la tecla `Menú` del control)
   abre el menú, que sirve en cualquier pantalla.
 

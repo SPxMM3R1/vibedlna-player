@@ -67,12 +67,12 @@ public final class MainActivity extends Activity {
     /** Columna de carpetas: 168 dp desde el margen. */
     private static final int FOLDER_COLUMN_WIDTH_DP = 168;
     /** Versión que muestran el menú y Acerca de (debe coincidir con versionName). */
-    private static final String APP_VERSION = "0.4.4";
+    private static final String APP_VERSION = "0.4.5";
     /** Sangría de las subcarpetas de la carpeta abierta (mockup: 16 dp). */
     private static final int SUBFOLDER_INDENT_DP = 16;
-    /** Velo negro al 55 % detrás del menú y panel oscuro al 92 %, como el mockup. */
-    private static final int MENU_VEIL = 0x8C000000;
-    private static final int MENU_GLASS = 0xEB101216;
+    /** Velo negro al 55 % y vidrio al 92 %, como el mockup: los paneles del menú y del aviso de salir. */
+    private static final int PANEL_VEIL = 0x8C000000;
+    private static final int PANEL_GLASS = 0xEB101216;
 
     private enum Screen { SERVERS, LIBRARY, DETAIL, OPTIONS }
 
@@ -145,12 +145,21 @@ public final class MainActivity extends Activity {
     private View menuReturnFocus;
     /** «≡ Menú» al pie de la columna de carpetas. */
     private View menuRow;
+    /** Aviso «¿Salir de VibeDLNA Player?»: mismo panel de vidrio que el menú, centrado. */
+    private FrameLayout screenExit;
+    private LinearLayout exitList;
+    private final List<View> exitRows = new ArrayList<>();
+    private final List<Runnable> exitActions = new ArrayList<>();
+    private boolean exitOpen;
+    private int exitFocus;
+    /** Atrás bajó con el aviso abierto; su subida (al soltar) es la que cierra el aviso. */
+    private boolean exitBackDown;
+    private View exitReturnFocus;
     private final List<TextView> clocks = new ArrayList<>();
     private LinearLayout serversList;
     private LinearLayout serversSpinner;
     private View[] spinnerDots;
     private TextView serversHint;
-    private TextView libraryCrumbs;
     private LinearLayout folderList;
     private TextView heroEyebrow;
     private TextView heroTitle;
@@ -159,7 +168,6 @@ public final class MainActivity extends Activity {
     private TextView gridMessage;
     private TextView libraryNotice;
     private RecyclerView grid;
-    private TextView detailCrumbs;
     private TextView detailEyebrow;
     private TextView detailTitle;
     private LinearLayout detailFacts;
@@ -169,7 +177,6 @@ public final class MainActivity extends Activity {
     private TextView detailFromStart;
     private TextView detailBack;
     private TextView detailFile;
-    private Dialog exitDialog;
     private Dialog clearDialog;
 
     private final Runnable clockTick = new Runnable() {
@@ -315,8 +322,9 @@ public final class MainActivity extends Activity {
         ));
         focusLine.bringToFront();
         focusRing.bringToFront();
-        // El menú va encima de todo: su velo tapa la biblioteca y también su foco.
+        // El menú y el aviso de salir van encima de todo: su velo tapa la biblioteca y también su foco.
         buildMenu();
+        buildExit();
         // Un solo foco a la vez: el marco de la tarjeta se va al salir de la grilla.
         root.getViewTreeObserver().addOnGlobalFocusChangeListener((oldFocus, newFocus) -> {
             boolean inGrid = newFocus != null && grid != null
@@ -350,59 +358,11 @@ public final class MainActivity extends Activity {
         return view;
     }
 
-    /** Logo, texto de ruta y reloj en la franja superior (left 64, top 44). */
-    private TextView header(FrameLayout parent, String eyebrow) {
-        return header(parent, eyebrow, 64, 44, 64);
-    }
-
-    /** Franja superior con sus márgenes en dp: la Biblioteca la pone a 48 y 30 (mockup). */
-    private TextView header(FrameLayout parent, String eyebrow, int leftDp, int topDp, int rightDp) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        FrameLayout.LayoutParams rowParams = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT
-        );
-        rowParams.leftMargin = TvUi.dp(this, leftDp);
-        rowParams.rightMargin = TvUi.dp(this, rightDp);
-        rowParams.topMargin = TvUi.dp(this, topDp);
-        row.setLayoutParams(rowParams);
-
-        View logo = new View(this);
-        GradientDrawable mark = new GradientDrawable();
-        mark.setCornerRadius(TvUi.dp(this, 4));
-        mark.setColor(0xFFE7399C);
-        logo.setBackground(mark);
-        row.addView(logo, new LinearLayout.LayoutParams(TvUi.dp(this, 16), TvUi.dp(this, 16)));
-
-        TextView crumbs = TvUi.text(this, eyebrow, 12f, 0x99FFFFFF, false);
-        crumbs.setLetterSpacing(0.2f);
-        crumbs.setAllCaps(true);
-        LinearLayout.LayoutParams crumbsParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        );
-        crumbsParams.leftMargin = TvUi.dp(this, 12);
-        row.addView(crumbs, crumbsParams);
-
-        TextView clock = TvUi.text(this, "", 15f, TvUi.INK_2, false);
-        LinearLayout.LayoutParams clockParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        );
-        clockParams.weight = 1f;
-        clockParams.leftMargin = TvUi.dp(this, 12);
-        clock.setGravity(Gravity.END);
-        row.addView(clock, clockParams);
-        clocks.add(clock);
-
-        parent.addView(row);
-        return crumbs;
-    }
-
-    private void buildServers() {
-        // Sin encabezado de marca: solo el reloj, arriba a la derecha (mockup: right 48, top 30).
+    /**
+     * Solo el reloj, arriba a la derecha (mockup: right 48, top 30). Las pantallas no llevan
+     * encabezado de marca ni ruta: el nombre de la carpeta va en el rótulo de la grilla.
+     */
+    private void addClock(FrameLayout parent) {
         TextView clock = TvUi.text(this, "", 15f, TvUi.INK_2, false);
         FrameLayout.LayoutParams clockParams = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -411,8 +371,12 @@ public final class MainActivity extends Activity {
         );
         clockParams.rightMargin = TvUi.dp(this, 48);
         clockParams.topMargin = TvUi.dp(this, 30);
-        screenServers.addView(clock, clockParams);
+        parent.addView(clock, clockParams);
         clocks.add(clock);
+    }
+
+    private void buildServers() {
+        addClock(screenServers);
 
         // «EN ESTA RED», el título y los servidores forman un bloque en (96, 96) dp.
         LinearLayout block = new LinearLayout(this);
@@ -488,8 +452,8 @@ public final class MainActivity extends Activity {
     }
 
     private void buildLibrary() {
-        // Encabezado de la biblioteca: cuadro y ruta a 48 dp del borde, a 30 dp de arriba (mockup).
-        libraryCrumbs = header(screenLibrary, "", LIBRARY_MARGIN_DP, 30, LIBRARY_MARGIN_DP);
+        // Biblioteca sin marca: solo el reloj arriba a la derecha.
+        addClock(screenLibrary);
 
         TextView label = TvUi.text(this, "CARPETAS", 9f, TvUi.INK_3, false);
         label.setLetterSpacing(0.2f);
@@ -618,7 +582,7 @@ public final class MainActivity extends Activity {
     }
 
     private void buildDetail() {
-        detailCrumbs = header(screenDetail, "");
+        addClock(screenDetail);
 
         LinearLayout block = new LinearLayout(this);
         block.setOrientation(LinearLayout.VERTICAL);
@@ -788,27 +752,7 @@ public final class MainActivity extends Activity {
      * «≡ Menú», la tecla Menú del control y Configuración; ▲ ▼ mueven, OK ejecuta y Atrás cierra.
      */
     private void buildMenu() {
-        screenMenu = new FrameLayout(this);
-        screenMenu.setLayoutParams(new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-        ));
-        screenMenu.setVisibility(View.GONE);
-
-        View veil = new View(this);
-        veil.setBackgroundColor(MENU_VEIL);
-        screenMenu.addView(veil, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-        ));
-
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable glass = new GradientDrawable();
-        glass.setColor(MENU_GLASS);
-        glass.setCornerRadius(TvUi.dp(this, 16));
-        panel.setBackground(glass);
-        panel.setPadding(TvUi.dp(this, 8), TvUi.dp(this, 18), TvUi.dp(this, 8), TvUi.dp(this, 10));
+        LinearLayout panel = glassPanel(18);
         FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(
                 TvUi.dp(this, 300),
                 FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -816,7 +760,7 @@ public final class MainActivity extends Activity {
         );
         panelParams.leftMargin = TvUi.dp(this, 32);
         panelParams.bottomMargin = TvUi.dp(this, 32);
-        screenMenu.addView(panel, panelParams);
+        screenMenu = veiledScreen(panel, panelParams);
 
         TextView label = TvUi.text(this, "MENÚ", 9f, TvUi.INK_3, false);
         label.setLetterSpacing(0.2f);
@@ -829,8 +773,84 @@ public final class MainActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
         ));
+    }
 
-        root.addView(screenMenu);
+    /** Panel de vidrio del menú y del aviso de salir: fondo al 92 %, esquinas de 16 dp. */
+    private LinearLayout glassPanel(int topPadDp) {
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable glass = new GradientDrawable();
+        glass.setColor(PANEL_GLASS);
+        glass.setCornerRadius(TvUi.dp(this, 16));
+        panel.setBackground(glass);
+        panel.setPadding(TvUi.dp(this, 8), TvUi.dp(this, topPadDp), TvUi.dp(this, 8), TvUi.dp(this, 10));
+        return panel;
+    }
+
+    /** Pantalla superpuesta con velo negro al 55 % y el panel encima. Nace oculta y va sobre la biblioteca. */
+    private FrameLayout veiledScreen(View panel, FrameLayout.LayoutParams panelParams) {
+        FrameLayout screen = new FrameLayout(this);
+        screen.setLayoutParams(new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+        screen.setVisibility(View.GONE);
+
+        View veil = new View(this);
+        veil.setBackgroundColor(PANEL_VEIL);
+        screen.addView(veil, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+        screen.addView(panel, panelParams);
+        root.addView(screen);
+        return screen;
+    }
+
+    /**
+     * Aviso «¿Salir de VibeDLNA Player?» (mockup «Salir»): el mismo panel de vidrio que el menú,
+     * centrado y de 360 dp. Foco inicial en «Salir»; ▲ ▼ mueven, OK ejecuta y Atrás equivale a
+     * «Seguir explorando» (ver {@link #handleExitKey}).
+     */
+    private void buildExit() {
+        LinearLayout panel = glassPanel(20);
+        FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(
+                TvUi.dp(this, 360),
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+        );
+        screenExit = veiledScreen(panel, panelParams);
+
+        TextView label = TvUi.text(this, "VIBEDLNA PLAYER", 9f, TvUi.INK_3, false);
+        label.setLetterSpacing(0.2f);
+        label.setPadding(TvUi.dp(this, 16), 0, 0, 0);
+        panel.addView(label);
+
+        TextView question = TvUi.text(this, getString(R.string.exit_dialog_title), 22f, TvUi.WHITE, true);
+        question.setPadding(TvUi.dp(this, 16), TvUi.dp(this, 6), TvUi.dp(this, 16), TvUi.dp(this, 14));
+        panel.addView(question);
+
+        exitList = new LinearLayout(this);
+        exitList.setOrientation(LinearLayout.VERTICAL);
+        panel.addView(exitList, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        addExitRow(getString(R.string.stay_watching), this::closeExitPanel);
+        addExitRow(getString(R.string.exit), () -> {
+            closeExitPanel();
+            finishAndRemoveTask();
+        });
+    }
+
+    private void addExitRow(String label, Runnable action) {
+        LinearLayout row = panelRow(0, label, "", action);
+        exitList.addView(row, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        exitRows.add(row);
+        exitActions.add(action);
     }
 
     /** «≡ Menú» al pie de la columna: ícono de tres rayas de 14 dp y texto de 12,5 sp. */
@@ -895,8 +915,22 @@ public final class MainActivity extends Activity {
         });
     }
 
-    /** Ítem de 15 sp con ícono de 18 dp; con foco va en blanco, texto negro en negrita. */
+    /** Ítem del menú con ícono de 18 dp. */
     private void addMenuItem(int iconRes, String label, String value, Runnable action) {
+        LinearLayout row = panelRow(iconRes, label, value, action);
+        menuList.addView(row, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        menuRows.add(row);
+        menuActions.add(action);
+    }
+
+    /**
+     * Fila de 15 sp con ícono de 18 dp opcional (0 = sin ícono) y valor a la derecha. Con foco va
+     * en blanco, texto negro en negrita. La usan el menú y el aviso de salir.
+     */
+    private LinearLayout panelRow(int iconRes, String label, String value, Runnable action) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -904,12 +938,14 @@ public final class MainActivity extends Activity {
         row.setPadding(TvUi.dp(this, 16), TvUi.dp(this, 11), TvUi.dp(this, 16), TvUi.dp(this, 11));
 
         ImageView icon = new ImageView(this);
-        icon.setImageResource(iconRes);
         icon.setImageTintList(ColorStateList.valueOf(TvUi.INK_2));
-        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(
-                TvUi.dp(this, 18), TvUi.dp(this, 18));
-        iconParams.rightMargin = TvUi.dp(this, 14);
-        row.addView(icon, iconParams);
+        if (iconRes != 0) {
+            icon.setImageResource(iconRes);
+            LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(
+                    TvUi.dp(this, 18), TvUi.dp(this, 18));
+            iconParams.rightMargin = TvUi.dp(this, 14);
+            row.addView(icon, iconParams);
+        }
 
         TextView text = TvUi.text(this, label, 15f, TvUi.INK_2, false);
         row.addView(text);
@@ -939,13 +975,7 @@ public final class MainActivity extends Activity {
             if (detail != null) detail.setTextColor(focused ? 0x8C000000 : TvUi.INK_3);
         });
         row.setOnClickListener(ignored -> action.run());
-
-        menuList.addView(row, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        ));
-        menuRows.add(row);
-        menuActions.add(action);
+        return row;
     }
 
     /** Línea de 1 dp al 12 % entre los dos grupos del panel (margen 16 dp a los lados y 6 dp arriba y abajo). */
@@ -1401,7 +1431,6 @@ public final class MainActivity extends Activity {
         submitGrid(videos);
         gridMessage.setText("No se pudo leer la carpeta del servidor DLNA.");
         gridMessage.setVisibility(View.VISIBLE);
-        renderHeader();
         clearHero();
         if (folderName != null) heroTitle.setText(folderName);
     }
@@ -1649,15 +1678,7 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private void renderHeader() {
-        String server = currentServer == null ? "" : currentServer.getFriendlyName();
-        String folder = selectedFolder == null ? "" : selectedFolder.getName();
-        libraryCrumbs.setText(DlnaMediaFormat.join(
-                java.util.Arrays.asList(server, folder), " · ").toUpperCase(Locale.ROOT));
-    }
-
     private void renderGrid() {
-        renderHeader();
         String folder = selectedFolder == null ? "" : selectedFolder.getName();
         String order = OptionsScreen.sortLabel(settings.sortOrder()).toUpperCase(Locale.ROOT);
         int count = videos.size();
@@ -1743,7 +1764,6 @@ public final class MainActivity extends Activity {
 
     private void showLibrary(boolean focusGrid) {
         showScreen(Screen.LIBRARY);
-        renderHeader();
         if (focusGrid && !videos.isEmpty()) {
             grid.post(() -> {
                 RecyclerView.ViewHolder holder = grid.findViewHolderForAdapterPosition(0);
@@ -1809,8 +1829,6 @@ public final class MainActivity extends Activity {
         MediaInfo media = entry.getMedia();
         String folder = selectedFolder == null ? "" : selectedFolder.getName();
         String server = currentServer == null ? "" : currentServer.getFriendlyName();
-        detailCrumbs.setText(DlnaMediaFormat.join(java.util.Arrays.asList(server, folder), " · ")
-                .toUpperCase(Locale.ROOT));
         String year = DlnaMediaFormat.year(media.date);
         String duration = DlnaMediaFormat.duration(entry.getDurationMs());
         detailEyebrow.setText(DlnaMediaFormat.join(java.util.Arrays.asList(year, duration), " · "));
@@ -1924,7 +1942,6 @@ public final class MainActivity extends Activity {
                 return;
             }
             showScreen(Screen.LIBRARY);
-            renderHeader();
         }
         pendingFocusKey = key;
     }
@@ -2048,6 +2065,7 @@ public final class MainActivity extends Activity {
     @Override
     @SuppressLint("GestureBackNavigation")
     public boolean dispatchKeyEvent(KeyEvent event) {
+        if (exitOpen && handleExitKey(event)) return true;
         if (menuOpen && handleMenuKey(event)) return true;
         // ◀ desde la primera columna de la grilla vuelve a la carpeta abierta.
         if (event.getAction() == KeyEvent.ACTION_DOWN
@@ -2093,7 +2111,11 @@ public final class MainActivity extends Activity {
             closeMenu();
             return;
         }
-        if (exitDialog != null && exitDialog.isShowing()) return;
+        // Lo mismo con el aviso de salir: Atrás equivale a «Seguir explorando».
+        if (exitOpen) {
+            closeExitPanel();
+            return;
+        }
         if (clearDialog != null && clearDialog.isShowing()) return;
         switch (screen) {
             case OPTIONS:
@@ -2107,44 +2129,83 @@ public final class MainActivity extends Activity {
                     showScreen(Screen.LIBRARY);
                     renderGrid();
                 } else {
-                    showExitDialog();
+                    showExitPanel();
                 }
                 break;
             default:
                 if (!levels.isRoot()) popLevel();
-                else showExitDialog();
+                else showExitPanel();
                 break;
         }
     }
 
-    private void showExitDialog() {
-        if (exitDialog != null && exitDialog.isShowing()) return;
-        Dialog dialog = new Dialog(this);
-        exitDialog = dialog;
-        dialog.setContentView(R.layout.dialog_exit);
-        dialog.setCanceledOnTouchOutside(false);
-        Button stayButton = dialog.findViewById(R.id.stay_button);
-        Button exitButton = dialog.findViewById(R.id.exit_button);
-        stayButton.setOnClickListener(view -> dialog.dismiss());
-        exitButton.setOnClickListener(view -> {
-            dialog.dismiss();
-            finishAndRemoveTask();
-        });
-        // Atrás equivale a «Seguir explorando»: cierra el aviso sin salir.
-        dialog.setCancelable(true);
-        dialog.setOnShowListener(ignored -> {
-            exitButton.requestFocus();
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                dialog.getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
-                        android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, dialog::dismiss);
-            }
-        });
-        dialog.setOnDismissListener(ignored -> {
-            if (exitDialog == dialog) exitDialog = null;
-            if (!isFinishing()) enterImmersiveMode();
-        });
-        dialog.show();
-        styleDialog(dialog, 0.68f);
+    /**
+     * Abre el aviso de salir con el foco en «Salir», como antes. Lo que no es ▲ ▼ OK o Atrás no
+     * hace nada mientras está abierto; el volumen sigue yendo al sistema.
+     */
+    private void showExitPanel() {
+        if (exitOpen) return;
+        exitReturnFocus = getCurrentFocus();
+        exitOpen = true;
+        exitBackDown = false;
+        exitFocus = exitRows.size() - 1;
+        TvUi.hide(focusLine);
+        TvUi.hide(focusRing);
+        screenExit.setVisibility(View.VISIBLE);
+        exitRows.get(exitFocus).requestFocus();
+    }
+
+    /** Cierra el aviso y devuelve el foco a la vista que lo abrió. */
+    private void closeExitPanel() {
+        if (!exitOpen) return;
+        exitOpen = false;
+        exitBackDown = false;
+        screenExit.setVisibility(View.GONE);
+        View back = exitReturnFocus;
+        exitReturnFocus = null;
+        if (back != null) back.requestFocus();
+    }
+
+    /**
+     * Con el aviso abierto las teclas son suyas: el foco no sale hacia la biblioteca de atrás y
+     * ◀ ▶ no hacen nada. Devuelve false solo para el volumen. Atrás cierra al soltar, como el menú;
+     * la subida del Atrás que lo abrió no cuenta, porque el aviso no vio la bajada.
+     */
+    @SuppressLint("GestureBackNavigation")
+    private boolean handleExitKey(KeyEvent event) {
+        int keyCode = event.getKeyCode();
+        boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
+        boolean first = down && event.getRepeatCount() == 0;
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_UP:
+                if (down) moveExitFocus(-1);
+                return true;
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                if (down) moveExitFocus(1);
+                return true;
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER:
+                if (first) exitActions.get(exitFocus).run();
+                return true;
+            case KeyEvent.KEYCODE_BACK:
+                if (down) {
+                    exitBackDown = true;
+                } else if (exitBackDown && !event.isCanceled()) {
+                    closeExitPanel();
+                }
+                return true;
+            case KeyEvent.KEYCODE_VOLUME_UP:
+            case KeyEvent.KEYCODE_VOLUME_DOWN:
+            case KeyEvent.KEYCODE_VOLUME_MUTE:
+                return false;
+            default:
+                return true;
+        }
+    }
+
+    private void moveExitFocus(int delta) {
+        exitFocus = Math.max(0, Math.min(exitRows.size() - 1, exitFocus + delta));
+        exitRows.get(exitFocus).requestFocus();
     }
 
     @Override
@@ -2221,7 +2282,6 @@ public final class MainActivity extends Activity {
         discoveryGeneration++;
         browseGeneration++;
         mainHandler.removeCallbacksAndMessages(null);
-        if (exitDialog != null) exitDialog.dismiss();
         if (clearDialog != null) clearDialog.dismiss();
         if (appUpdater != null) appUpdater.destroy();
         thumbnailRepository.destroy();
