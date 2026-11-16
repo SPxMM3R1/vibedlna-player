@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.app.Dialog;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
+import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Color;
@@ -31,6 +32,7 @@ import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.window.OnBackInvokedDispatcher;
 
@@ -64,6 +66,13 @@ public final class MainActivity extends Activity {
     private static final int LIBRARY_MARGIN_DP = 48;
     /** Columna de carpetas: 168 dp desde el margen. */
     private static final int FOLDER_COLUMN_WIDTH_DP = 168;
+    /** Versión que muestran el menú y Acerca de (debe coincidir con versionName). */
+    private static final String APP_VERSION = "0.4.4";
+    /** Sangría de las subcarpetas de la carpeta abierta (mockup: 16 dp). */
+    private static final int SUBFOLDER_INDENT_DP = 16;
+    /** Velo negro al 55 % detrás del menú y panel oscuro al 92 %, como el mockup. */
+    private static final int MENU_VEIL = 0x8C000000;
+    private static final int MENU_GLASS = 0xEB101216;
 
     private enum Screen { SERVERS, LIBRARY, DETAIL, OPTIONS }
 
@@ -125,6 +134,17 @@ public final class MainActivity extends Activity {
     private FrameLayout screenLibrary;
     private FrameLayout screenDetail;
     private FrameLayout screenOptions;
+    /** Menú «≡ Menú»: velo y panel sobre todas las pantallas. */
+    private FrameLayout screenMenu;
+    private LinearLayout menuList;
+    private final List<View> menuRows = new ArrayList<>();
+    private final List<Runnable> menuActions = new ArrayList<>();
+    private boolean menuOpen;
+    private int menuFocus;
+    /** Vista con foco al abrir el menú; se le devuelve el foco al cerrarlo fuera de la biblioteca. */
+    private View menuReturnFocus;
+    /** «≡ Menú» al pie de la columna de carpetas. */
+    private View menuRow;
     private final List<TextView> clocks = new ArrayList<>();
     private LinearLayout serversList;
     private LinearLayout serversSpinner;
@@ -143,7 +163,7 @@ public final class MainActivity extends Activity {
     private TextView detailEyebrow;
     private TextView detailTitle;
     private LinearLayout detailFacts;
-    private WavyProgressBar detailBar;
+    private StraightProgressBar detailBar;
     private TextView detailProgress;
     private TextView detailResume;
     private TextView detailFromStart;
@@ -295,6 +315,8 @@ public final class MainActivity extends Activity {
         ));
         focusLine.bringToFront();
         focusRing.bringToFront();
+        // El menú va encima de todo: su velo tapa la biblioteca y también su foco.
+        buildMenu();
         // Un solo foco a la vez: el marco de la tarjeta se va al salir de la grilla.
         root.getViewTreeObserver().addOnGlobalFocusChangeListener((oldFocus, newFocus) -> {
             boolean inGrid = newFocus != null && grid != null
@@ -380,20 +402,54 @@ public final class MainActivity extends Activity {
     }
 
     private void buildServers() {
-        header(screenServers, "VibeDLNA");
+        // Sin encabezado de marca: solo el reloj, arriba a la derecha (mockup: right 48, top 30).
+        TextView clock = TvUi.text(this, "", 15f, TvUi.INK_2, false);
+        FrameLayout.LayoutParams clockParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP | Gravity.END
+        );
+        clockParams.rightMargin = TvUi.dp(this, 48);
+        clockParams.topMargin = TvUi.dp(this, 30);
+        screenServers.addView(clock, clockParams);
+        clocks.add(clock);
 
-        TextView eyebrow = TvUi.text(this, "EN ESTA RED", 12f, 0x99FFFFFF, false);
+        // «EN ESTA RED», el título y los servidores forman un bloque en (96, 96) dp.
+        LinearLayout block = new LinearLayout(this);
+        block.setOrientation(LinearLayout.VERTICAL);
+        FrameLayout.LayoutParams blockParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP | Gravity.START
+        );
+        blockParams.leftMargin = TvUi.dp(this, 96);
+        blockParams.topMargin = TvUi.dp(this, 96);
+        screenServers.addView(block, blockParams);
+
+        TextView eyebrow = TvUi.text(this, "EN ESTA RED", 11f, TvUi.INK_3, false);
         eyebrow.setLetterSpacing(0.2f);
         eyebrow.setAllCaps(true);
-        place(screenServers, eyebrow, 64, 170);
+        block.addView(eyebrow);
 
-        TextView title = TvUi.text(this, "¿Qué quieres ver?", 44f, TvUi.WHITE, true);
-        place(screenServers, title, 64, 196);
+        // Título de la pantalla: 38 sp en negrita, 8 dp debajo de «EN ESTA RED».
+        TextView title = TvUi.text(this, "¿Qué quieres ver?", 38f, TvUi.WHITE, true);
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        titleParams.topMargin = TvUi.dp(this, 8);
+        block.addView(title, titleParams);
 
         serversList = new LinearLayout(this);
         serversList.setOrientation(LinearLayout.VERTICAL);
         serversList.setClipChildren(false);
-        place(screenServers, serversList, 64, 290);
+        // Los servidores van 36 dp debajo del título.
+        LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        listParams.topMargin = TvUi.dp(this, 36);
+        block.addView(serversList, listParams);
 
         serversSpinner = new LinearLayout(this);
         serversSpinner.setOrientation(LinearLayout.HORIZONTAL);
@@ -420,7 +476,15 @@ public final class MainActivity extends Activity {
         );
         hintParams.leftMargin = TvUi.dp(this, 8);
         serversSpinner.addView(serversHint, hintParams);
-        place(screenServers, serversSpinner, 64, 600);
+        // «Buscando más servidores en la red» queda abajo, a 64 dp del borde (mockup: left 96).
+        FrameLayout.LayoutParams spinnerParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM | Gravity.START
+        );
+        spinnerParams.leftMargin = TvUi.dp(this, 96);
+        spinnerParams.bottomMargin = TvUi.dp(this, 64);
+        screenServers.addView(serversSpinner, spinnerParams);
     }
 
     private void buildLibrary() {
@@ -435,7 +499,34 @@ public final class MainActivity extends Activity {
         folderList.setOrientation(LinearLayout.VERTICAL);
         folderList.setClipChildren(false);
         // Columna angosta de 168 dp: los nombres largos se cortan con «…» dentro de ella.
-        place(screenLibrary, folderList, LIBRARY_MARGIN_DP, 102, FOLDER_COLUMN_WIDTH_DP);
+        // Columna: 168 dp desde el margen, de la línea 102 a 40 dp del fondo. Las carpetas van en un
+        // desplazable y «≡ Menú» queda pegado al pie, así una lista larga no lo tapa.
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        FrameLayout.LayoutParams columnParams = new FrameLayout.LayoutParams(
+                TvUi.dp(this, FOLDER_COLUMN_WIDTH_DP),
+                FrameLayout.LayoutParams.MATCH_PARENT
+        );
+        columnParams.leftMargin = TvUi.dp(this, LIBRARY_MARGIN_DP);
+        columnParams.topMargin = TvUi.dp(this, 102);
+        columnParams.bottomMargin = TvUi.dp(this, 40);
+        column.setLayoutParams(columnParams);
+        screenLibrary.addView(column);
+
+        ScrollView folderScroll = new ScrollView(this);
+        folderScroll.setVerticalScrollBarEnabled(false);
+        folderScroll.addView(folderList, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+        ));
+        column.addView(folderScroll, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        menuRow = buildMenuRow();
+        column.addView(menuRow, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
 
         // Detalle compacto del video con foco: duración, título en una línea y línea técnica.
         heroEyebrow = TvUi.text(this, "", 9f, TvUi.INK_3, false);
@@ -576,7 +667,7 @@ public final class MainActivity extends Activity {
         progressParams.topMargin = TvUi.dp(this, 28);
         block.addView(progressRow, progressParams);
 
-        detailBar = new WavyProgressBar(this);
+        detailBar = new StraightProgressBar(this);
         progressRow.addView(detailBar, new LinearLayout.LayoutParams(TvUi.dp(this, 300), TvUi.dp(this, 14)));
 
         detailProgress = TvUi.text(this, "", 14f, TvUi.INK_2, false);
@@ -687,7 +778,271 @@ public final class MainActivity extends Activity {
             public void onCheckUpdatesRequested() {
                 appUpdater.checkForUpdates();
             }
-        }, "0.4.3", tabs, rows);
+        }, APP_VERSION, tabs, rows);
+    }
+
+    // ---------------------------------------------------------------- menú
+
+    /**
+     * Panel «MENÚ» (mockup): abajo a la izquierda, sobre un velo negro al 55 %. Lo abren OK sobre
+     * «≡ Menú», la tecla Menú del control y Configuración; ▲ ▼ mueven, OK ejecuta y Atrás cierra.
+     */
+    private void buildMenu() {
+        screenMenu = new FrameLayout(this);
+        screenMenu.setLayoutParams(new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+        screenMenu.setVisibility(View.GONE);
+
+        View veil = new View(this);
+        veil.setBackgroundColor(MENU_VEIL);
+        screenMenu.addView(veil, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable glass = new GradientDrawable();
+        glass.setColor(MENU_GLASS);
+        glass.setCornerRadius(TvUi.dp(this, 16));
+        panel.setBackground(glass);
+        panel.setPadding(TvUi.dp(this, 8), TvUi.dp(this, 18), TvUi.dp(this, 8), TvUi.dp(this, 10));
+        FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(
+                TvUi.dp(this, 300),
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM | Gravity.START
+        );
+        panelParams.leftMargin = TvUi.dp(this, 32);
+        panelParams.bottomMargin = TvUi.dp(this, 32);
+        screenMenu.addView(panel, panelParams);
+
+        TextView label = TvUi.text(this, "MENÚ", 9f, TvUi.INK_3, false);
+        label.setLetterSpacing(0.2f);
+        label.setPadding(TvUi.dp(this, 16), 0, 0, TvUi.dp(this, 8));
+        panel.addView(label);
+
+        menuList = new LinearLayout(this);
+        menuList.setOrientation(LinearLayout.VERTICAL);
+        panel.addView(menuList, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
+        root.addView(screenMenu);
+    }
+
+    /** «≡ Menú» al pie de la columna: ícono de tres rayas de 14 dp y texto de 12,5 sp. */
+    private View buildMenuRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setFocusable(true);
+        row.setClipChildren(false);
+        row.setPadding(0, TvUi.dp(this, 6), 0, TvUi.dp(this, 6));
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.drawable.ic_menu_lines);
+        icon.setImageTintList(ColorStateList.valueOf(TvUi.INK_3));
+        row.addView(icon, new LinearLayout.LayoutParams(TvUi.dp(this, 14), TvUi.dp(this, 14)));
+
+        TextView label = TvUi.text(this, "Menú", 12.5f, TvUi.INK_3, false);
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        labelParams.leftMargin = TvUi.dp(this, 9);
+        row.addView(label, labelParams);
+
+        TvUi.clickable(row, this::openMenu);
+        row.setOnFocusChangeListener((view, focused) -> {
+            TvUi.setFocusedText(label, focused);
+            int ink = focused ? TvUi.WHITE : TvUi.INK_3;
+            label.setTextColor(ink);
+            icon.setImageTintList(ColorStateList.valueOf(ink));
+            // La línea de foco va bajo el «≡ Menú» completo, como bajo las carpetas.
+            if (focused) TvUi.underline(focusLine, row, root, this);
+            else TvUi.hide(focusLine);
+        });
+        return row;
+    }
+
+    /** Arma las filas del panel según la pantalla: el orden y los ítems siempre son los del mockup. */
+    private void renderMenu() {
+        menuList.removeAllViews();
+        menuRows.clear();
+        menuActions.clear();
+        String server = currentServer == null ? "" : currentServer.getFriendlyName();
+        addMenuItem(R.drawable.ic_menu_server, "Cambiar de servidor", server, () -> {
+            closeMenu();
+            startDiscovery(false);
+        });
+        if (currentServer != null && selectedFolder != null) {
+            addMenuItem(R.drawable.ic_menu_reload, "Volver a leer la carpeta", "", () -> {
+                closeMenu();
+                rereadSelectedFolder();
+            });
+        }
+        addMenuSeparator();
+        addMenuItem(R.drawable.ic_menu_options, "Opciones", "", () -> {
+            closeMenu();
+            showOptions();
+        });
+        addMenuItem(R.drawable.ic_menu_update, "Buscar actualizaciones", APP_VERSION, () -> {
+            closeMenu();
+            appUpdater.checkForUpdates();
+        });
+    }
+
+    /** Ítem de 15 sp con ícono de 18 dp; con foco va en blanco, texto negro en negrita. */
+    private void addMenuItem(int iconRes, String label, String value, Runnable action) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setFocusable(true);
+        row.setPadding(TvUi.dp(this, 16), TvUi.dp(this, 11), TvUi.dp(this, 16), TvUi.dp(this, 11));
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconRes);
+        icon.setImageTintList(ColorStateList.valueOf(TvUi.INK_2));
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(
+                TvUi.dp(this, 18), TvUi.dp(this, 18));
+        iconParams.rightMargin = TvUi.dp(this, 14);
+        row.addView(icon, iconParams);
+
+        TextView text = TvUi.text(this, label, 15f, TvUi.INK_2, false);
+        row.addView(text);
+
+        final TextView detail = value.isEmpty() ? null : TvUi.text(this, value, 11f, TvUi.INK_3, false);
+        if (detail != null) {
+            // El valor va pegado a la derecha: el espacio libre lo llena un peso.
+            row.addView(new View(this), new LinearLayout.LayoutParams(0, 0, 1f));
+            LinearLayout.LayoutParams detailParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+            );
+            detailParams.leftMargin = TvUi.dp(this, 12);
+            row.addView(detail, detailParams);
+        }
+
+        GradientDrawable highlight = new GradientDrawable();
+        highlight.setColor(TvUi.WHITE);
+        highlight.setCornerRadius(TvUi.dp(this, 10));
+        row.setOnFocusChangeListener((view, focused) -> {
+            row.setBackground(focused ? highlight : null);
+            int ink = focused ? Color.BLACK : TvUi.INK_2;
+            text.setTextColor(ink);
+            text.setTypeface(null, focused ? Typeface.BOLD : Typeface.NORMAL);
+            icon.setImageTintList(ColorStateList.valueOf(ink));
+            if (detail != null) detail.setTextColor(focused ? 0x8C000000 : TvUi.INK_3);
+        });
+        row.setOnClickListener(ignored -> action.run());
+
+        menuList.addView(row, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        menuRows.add(row);
+        menuActions.add(action);
+    }
+
+    /** Línea de 1 dp al 12 % entre los dos grupos del panel (margen 16 dp a los lados y 6 dp arriba y abajo). */
+    private void addMenuSeparator() {
+        View line = new View(this);
+        line.setBackgroundColor(0x1FFFFFFF);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                TvUi.dp(this, 1)
+        );
+        params.setMargins(TvUi.dp(this, 16), TvUi.dp(this, 6), TvUi.dp(this, 16), TvUi.dp(this, 6));
+        menuList.addView(line, params);
+    }
+
+    private void openMenu() {
+        if (menuOpen || screen == Screen.OPTIONS) return;
+        menuReturnFocus = getCurrentFocus();
+        renderMenu();
+        menuOpen = true;
+        menuFocus = 0;
+        TvUi.hide(focusLine);
+        TvUi.hide(focusRing);
+        screenMenu.setVisibility(View.VISIBLE);
+        menuRows.get(0).requestFocus();
+    }
+
+    /** Cierra el panel y devuelve el foco a «≡ Menú» (o a la vista que lo abrió fuera de la biblioteca). */
+    private void closeMenu() {
+        if (!menuOpen) return;
+        menuOpen = false;
+        screenMenu.setVisibility(View.GONE);
+        View back = screen == Screen.LIBRARY && menuRow != null ? menuRow : menuReturnFocus;
+        menuReturnFocus = null;
+        if (back != null) back.requestFocus();
+    }
+
+    private void moveMenuFocus(int delta) {
+        menuFocus = Math.max(0, Math.min(menuRows.size() - 1, menuFocus + delta));
+        menuRows.get(menuFocus).requestFocus();
+    }
+
+    /**
+     * Con el panel abierto las teclas son suyas: el foco no sale hacia la biblioteca de atrás.
+     * Devuelve false para las que no son del menú (volumen, por ejemplo). Atrás llega aquí como
+     * tecla y también por el gesto de volver ({@link #handleBackAction}), que cierra el menú igual.
+     */
+    @SuppressLint("GestureBackNavigation")
+    private boolean handleMenuKey(KeyEvent event) {
+        int keyCode = event.getKeyCode();
+        boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
+        boolean first = down && event.getRepeatCount() == 0;
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_UP:
+                if (down) moveMenuFocus(-1);
+                return true;
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                if (down) moveMenuFocus(1);
+                return true;
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER:
+                if (first) menuActions.get(menuFocus).run();
+                return true;
+            case KeyEvent.KEYCODE_BACK:
+            case KeyEvent.KEYCODE_MENU:
+            case KeyEvent.KEYCODE_SETTINGS:
+                if (first) closeMenu();
+                return true;
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * «Volver a leer la carpeta»: repite el Browse de la carpeta abierta y refresca la grilla y,
+     * si es el nivel de la columna, sus subcarpetas. El foco se queda en «≡ Menú».
+     */
+    private void rereadSelectedFolder() {
+        DlnaServer server = currentServer;
+        VideoItem folder = selectedFolder;
+        if (server == null || folder == null) return;
+        browseAsync(server, folder.getId(), result -> {
+            if (server != currentServer || folder != selectedFolder) return;
+            if (result == null) {
+                showLibraryError(folder.getName());
+                return;
+            }
+            List<VideoItem> children = containersSorted(result.entries);
+            if (folder.getId().equals(levels.top().id)) folders = children;
+            videos = arrange(result.entries);
+            libraryNotice.setVisibility(result.incomplete ? View.VISIBLE : View.GONE);
+            renderFolders();
+            renderGrid();
+            if (videos.isEmpty()) setFolderHero(folder, children.size());
+            else setHero(videos.get(0));
+        });
     }
 
     // ---------------------------------------------------------------- utilidades de vista
@@ -1209,44 +1564,38 @@ public final class MainActivity extends Activity {
         return supportedMimes;
     }
 
+    /**
+     * Columna de carpetas. Dentro de una carpeta: «‹ padre», la carpeta abierta y, debajo, sus
+     * subcarpetas sangradas 16 dp y a 13,5 sp. En la raíz, las carpetas van sin sangría.
+     */
     private void renderFolders() {
         folderList.removeAllViews();
-        if (!levels.isRoot() && levels.parent() != null) {
-            folderList.addView(folderRow(UP_ROW_ID, "‹ " + levels.parent().name, null, false, () -> popLevel()));
-            // Nivel abierto: va arriba de sus subcarpetas. Con el punto verde, si es la carpeta
-            // que muestra la grilla; y con el foco al abrirla desde la columna.
+        boolean nested = !levels.isRoot() && levels.parent() != null;
+        if (nested) {
+            folderList.addView(folderRow(UP_ROW_ID, "‹ " + levels.parent().name, false, 0, 12.5f,
+                    () -> popLevel()));
+            // Nivel abierto: va arriba de sus subcarpetas, en negrita si es la carpeta que muestra la grilla.
             BrowseStack.Level top = levels.top();
             boolean openTop = selectedFolder != null && top.id.equals(selectedFolder.getId());
-            folderList.addView(folderRow(top.id, top.name,
-                    openTop ? String.valueOf(videos.size()) : null, openTop,
+            folderList.addView(folderRow(top.id, top.name, openTop, 0, 14.5f,
                     () -> selectFolder(VideoItem.container(currentServer.getUdn(), top.id, "", top.name),
                             false)));
         }
+        int indent = nested ? SUBFOLDER_INDENT_DP : 0;
+        float textSp = nested ? 13.5f : 14.5f;
         for (VideoItem folder : folders) {
             boolean open = selectedFolder != null && folder.getId().equals(selectedFolder.getId());
-            folderList.addView(folderRow(folder.getId(), folder.getName(),
-                    open ? String.valueOf(videos.size()) : null, open,
+            folderList.addView(folderRow(folder.getId(), folder.getName(), open, indent, textSp,
                     () -> selectFolder(folder, true)));
-        }
-        if (currentServer != null) {
-            TextView change = TvUi.text(this, "Cambiar de servidor", 12.5f, TvUi.INK_2, false);
-            change.setFocusable(true);
-            change.setEllipsize(TextUtils.TruncateAt.END);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-            );
-            params.topMargin = TvUi.dp(this, 14);
-            folderList.addView(change, params);
-            TvUi.clickable(change, () -> startDiscovery(false));
-            change.setOnFocusChangeListener((view, focused) -> {
-                TvUi.setFocusedText(change, focused);
-                if (focused) TvUi.underline(focusLine, change, root, this);
-            });
         }
     }
 
-    private View folderRow(String id, String name, String count, boolean open, Runnable action) {
+    /**
+     * Fila de carpeta. La carpeta abierta va en blanco y negrita aunque no tenga el foco; sin
+     * punto ni contador. La sangría va en el margen izquierdo de la fila, así la línea de foco
+     * empieza en ella y mide el ancho del texto.
+     */
+    private View folderRow(String id, String name, boolean open, int indentDp, float textSp, Runnable action) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -1260,45 +1609,21 @@ public final class MainActivity extends Activity {
         );
         rowParams.bottomMargin = TvUi.dp(this, 2);
         row.setLayoutParams(rowParams);
-        row.setPadding(0, TvUi.dp(this, 6), 0, TvUi.dp(this, 6));
+        row.setPadding(TvUi.dp(this, indentDp), TvUi.dp(this, 6), 0, TvUi.dp(this, 6));
 
-        boolean up = id.equals(UP_ROW_ID);
-        TextView label = TvUi.text(this, name, up ? 12.5f : 14.5f,
-                open ? TvUi.WHITE : TvUi.INK_2, open);
+        TextView label = TvUi.text(this, name, textSp, open ? TvUi.WHITE : TvUi.INK_2, open);
         label.setEllipsize(TextUtils.TruncateAt.END);
-        // El nombre mide lo que dice (y se corta con «…» si no cabe): el punto y el contador van
-        // pegados a él, a 7 dp, no al borde de la columna.
         row.addView(label, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
         ));
-        if (open) {
-            View dot = new View(this);
-            GradientDrawable shape = new GradientDrawable();
-            shape.setShape(GradientDrawable.OVAL);
-            shape.setColor(TvUi.LIVE);
-            dot.setBackground(shape);
-            LinearLayout.LayoutParams dotParams = new LinearLayout.LayoutParams(
-                    TvUi.dp(this, 5),
-                    TvUi.dp(this, 5)
-            );
-            dotParams.leftMargin = TvUi.dp(this, 7);
-            row.addView(dot, dotParams);
-        }
-        if (count != null) {
-            TextView countView = TvUi.text(this, count, 11f, TvUi.INK_3, false);
-            LinearLayout.LayoutParams countParams = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-            );
-            countParams.leftMargin = TvUi.dp(this, 7);
-            row.addView(countView, countParams);
-        }
         TvUi.clickable(row, action);
         row.setOnFocusChangeListener((view, focused) -> {
             TvUi.setFocusedText(label, focused);
-            // Sin foco el texto va al 62 %; la carpeta abierta se marca con el punto verde.
-            label.setTextColor(focused ? TvUi.WHITE : TvUi.INK_2);
+            // Sin foco el texto va al 62 %, salvo la carpeta abierta, que sigue en blanco y negrita.
+            boolean strong = focused || open;
+            label.setTextColor(strong ? TvUi.WHITE : TvUi.INK_2);
+            label.setTypeface(null, strong ? Typeface.BOLD : Typeface.NORMAL);
             if (focused) TvUi.underline(focusLine, label, root, this);
             else TvUi.hide(focusLine);
         });
@@ -1494,9 +1819,8 @@ public final class MainActivity extends Activity {
                 DlnaMediaFormat.mbps(media.bitrateBytesPerSecond)), " · ");
         addFact(detailFacts, "Archivo", file, 34);
 
-        // En el detalle el video no está sonando: la onda queda plana y muestra el avance.
+        // En el detalle el video no está sonando: la barra muestra el avance guardado.
         detailBar.setProgress(point == null ? 0L : point.positionMs, point == null ? 0L : point.durationMs);
-        detailBar.setPlaying(false);
         if (point != null) {
             detailProgress.setText(DlnaMediaFormat.duration(point.positionMs) + " de "
                     + DlnaMediaFormat.duration(point.durationMs) + " · Quedan "
@@ -1719,7 +2043,8 @@ public final class MainActivity extends Activity {
     @Override
     @SuppressLint("GestureBackNavigation")
     public boolean dispatchKeyEvent(KeyEvent event) {
-        // ◀ desde la primera columna de la grilla vuelve a la carpeta abierta (punto verde).
+        if (menuOpen && handleMenuKey(event)) return true;
+        // ◀ desde la primera columna de la grilla vuelve a la carpeta abierta.
         if (event.getAction() == KeyEvent.ACTION_DOWN
                 && event.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT
                 && screen == Screen.LIBRARY && selectedFolder != null) {
@@ -1738,9 +2063,10 @@ public final class MainActivity extends Activity {
                 handleBackAction();
                 return true;
             }
+            // El menú es la única entrada a Opciones. Dentro de Opciones, la tecla la cierra.
             if (keyCode == KeyEvent.KEYCODE_MENU || keyCode == KeyEvent.KEYCODE_SETTINGS) {
                 if (screen == Screen.OPTIONS) closeOptions();
-                else showOptions();
+                else openMenu();
                 return true;
             }
         }
@@ -1757,6 +2083,11 @@ public final class MainActivity extends Activity {
     }
 
     private void handleBackAction() {
+        // Con el menú abierto, Atrás solo lo cierra (llega también por el gesto de volver).
+        if (menuOpen) {
+            closeMenu();
+            return;
+        }
         if (exitDialog != null && exitDialog.isShowing()) return;
         if (clearDialog != null && clearDialog.isShowing()) return;
         switch (screen) {

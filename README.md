@@ -13,7 +13,8 @@ Reproductor DLNA para Android TV con la interfaz compacta de VibeM3U.
   deja el estado vacío cuando el servidor no proporciona una imagen lista.
 - Muestra las carpetas en una columna angosta y los videos en una grilla de
   4 columnas con tarjetas 16:9. El avance de un video se ve en una barra
-  ondulada (la parte vista se mueve al reproducir y se aplana en pausa).
+  recta: lo visto va en cian, lo que falta en blanco tenue y un punto marca la
+  posición actual.
 - Conserva temporalmente la posición de un video durante una hora para
   reanudarlo automáticamente; no mantiene historial permanente.
 
@@ -37,6 +38,8 @@ Biblioteca:
 - `OK` en un video: si tiene avance guardado, abre Detalle (reanudar o desde
   el inicio); si no, reproduce desde el inicio.
 - `Atrás`: subir un nivel de carpetas o confirmar la salida en la raíz.
+- Abajo de la columna, «≡ Menú»: `OK` sobre él (o la tecla `Menú` del control)
+  abre el menú, que sirve en cualquier pantalla.
 
 Detalle:
 
@@ -53,7 +56,14 @@ Reproductor:
   pausa se queda. Al terminar, pasa al siguiente video de la carpeta; si no hay
   otro, vuelve a la biblioteca con el foco en ese video.
 
-Opciones (`Menú` o `Configuración`, en cualquier pantalla):
+Menú (`OK` sobre «≡ Menú», la tecla `Menú` o `Configuración`, en cualquier pantalla):
+
+- Cambiar de servidor (con el nombre del servidor actual), Volver a leer la
+  carpeta, Opciones y Buscar actualizaciones (con la versión instalada).
+- `▲`/`▼` mueven, `OK` ejecuta y `Atrás` cierra y devuelve el foco a «≡ Menú».
+- Es la única entrada a Opciones: la tecla `Menú` ya no abre Opciones directo.
+
+Opciones (desde el menú):
 
 - Pestañas Biblioteca, Reproducción, Servidores y Acerca de; izquierda/derecha
   entre pestañas, `OK` cambia el valor de una fila o ejecuta su acción.

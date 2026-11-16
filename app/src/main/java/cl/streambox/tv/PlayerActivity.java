@@ -89,7 +89,7 @@ public final class PlayerActivity extends Activity {
     private LinearLayout osd;
     private TextView eyebrow;
     private TextView title;
-    private WavyProgressBar bar;
+    private StraightProgressBar bar;
     private TextView time;
     private TextView next;
     private TextView help;
@@ -341,7 +341,6 @@ public final class PlayerActivity extends Activity {
         help.setText(PlaybackUiFormatter.helpLine(playing));
         time.setText(PlaybackUiFormatter.timeLine(position, known ? duration : 0L, playing));
         bar.setProgress(position, known ? duration : 0L);
-        bar.setPlaying(playing);
         if (known) updateTechLine();
     }
 

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Volver a leer la carpeta (mockup «reload»). Se tiñe en código. -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M20,12 A8,8 0 1,1 17.7,6.3 L20,8 M20,3 V8 H15"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round"
+        android:strokeWidth="2" />
+</vector>

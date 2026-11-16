@@ -94,8 +94,8 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
-                <!-- Barra ondulada Material 3 (300 dp, como la de antes): onda cian, línea que falta y punto. -->
-                <cl.streambox.tv.WavyProgressBar
+                <!-- Barra recta de 3 dp (300 dp de ancho): cian lo visto, blanco al 25 % lo que falta y punto. -->
+                <cl.streambox.tv.StraightProgressBar
                     android:id="@+id/player_bar"
                     android:layout_width="300dp"
                     android:layout_height="14dp" />

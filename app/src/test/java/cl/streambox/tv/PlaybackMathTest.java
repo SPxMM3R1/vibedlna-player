@@ -5,6 +5,21 @@ import static org.junit.Assert.assertEquals;
 import org.junit.Test;
 
 public final class PlaybackMathTest {
+    private static final float DELTA = 0.0001f;
+
+    @Test
+    public void fractionIsZeroWithoutKnownDuration() {
+        assertEquals(0f, PlaybackMath.fraction(10_000L, 0L), DELTA);
+        assertEquals(0f, PlaybackMath.fraction(10_000L, -1L), DELTA);
+    }
+
+    @Test
+    public void fractionIsPositionOverDurationClampedToZeroAndOne() {
+        assertEquals(0.5f, PlaybackMath.fraction(30_000L, 60_000L), DELTA);
+        assertEquals(0f, PlaybackMath.fraction(-5_000L, 60_000L), DELTA);
+        assertEquals(1f, PlaybackMath.fraction(90_000L, 60_000L), DELTA);
+    }
+
     @Test
     public void seekNeverLeavesMediaBounds() {
         assertEquals(0L, PlaybackMath.clampSeekPosition(5_000L, -10_000L, 60_000L));
