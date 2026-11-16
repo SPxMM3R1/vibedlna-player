@@ -916,13 +916,14 @@ public final class MainActivity extends Activity {
 
         final TextView detail = value.isEmpty() ? null : TvUi.text(this, value, 11f, TvUi.INK_3, false);
         if (detail != null) {
-            // El valor va pegado a la derecha: el espacio libre lo llena un peso.
-            row.addView(new View(this), new LinearLayout.LayoutParams(0, 0, 1f));
+            // El valor ocupa el espacio que queda, alineado a la derecha: un nombre de servidor
+            // largo se corta con «…» en vez de quedar cortado a la mitad por el borde de la fila.
             LinearLayout.LayoutParams detailParams = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-            );
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
             detailParams.leftMargin = TvUi.dp(this, 12);
+            detail.setSingleLine(true);
+            detail.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            detail.setGravity(Gravity.END);
             row.addView(detail, detailParams);
         }
 
@@ -1008,6 +1009,10 @@ public final class MainActivity extends Activity {
                 if (first) menuActions.get(menuFocus).run();
                 return true;
             case KeyEvent.KEYCODE_BACK:
+                // Se cierra al soltar: si se cerrara al apretar, el Atrás que llega al soltar
+                // (y el gesto de volver) subiría además un nivel de carpetas.
+                if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) closeMenu();
+                return true;
             case KeyEvent.KEYCODE_MENU:
             case KeyEvent.KEYCODE_SETTINGS:
                 if (first) closeMenu();
@@ -2125,7 +2130,15 @@ public final class MainActivity extends Activity {
             dialog.dismiss();
             finishAndRemoveTask();
         });
-        dialog.setOnShowListener(ignored -> exitButton.requestFocus());
+        // Atrás equivale a «Seguir explorando»: cierra el aviso sin salir.
+        dialog.setCancelable(true);
+        dialog.setOnShowListener(ignored -> {
+            exitButton.requestFocus();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                dialog.getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                        android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, dialog::dismiss);
+            }
+        });
         dialog.setOnDismissListener(ignored -> {
             if (exitDialog == dialog) exitDialog = null;
             if (!isFinishing()) enterImmersiveMode();
